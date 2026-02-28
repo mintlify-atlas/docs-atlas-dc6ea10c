@@ -1,0 +1,111 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "Markdown-OS",
+  "projectDescription": "Developer-focused markdown editor served from a local CLI with live preview, Mermaid diagrams, and auto-save.",
+  "theme": "palm",
+  "primaryColor": "#6366f1",
+  "lightColor": "#818cf8",
+  "darkColor": "#4f46e5",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/single-file-mode",
+              "guides/directory-mode",
+              "guides/editor-features",
+              "guides/themes",
+              "guides/images"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/wysiwyg-editing",
+              "features/mermaid-diagrams",
+              "features/math-equations",
+              "features/syntax-highlighting",
+              "features/auto-save"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Command Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/overview",
+              "commands/open",
+              "commands/example"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/host-and-port",
+              "configuration/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Python API",
+            "pages": [
+              "api/file-handler",
+              "api/directory-handler",
+              "api/server"
+            ]
+          },
+          {
+            "group": "REST API",
+            "pages": [
+              "api/endpoints",
+              "api/websocket"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "WYSIWYG markdown editor with live preview",
+    "Single-file and directory workspace modes",
+    "Mermaid diagram support",
+    "KaTeX math equations",
+    "Syntax highlighting for code blocks",
+    "Auto-save with conflict detection",
+    "Image upload and management",
+    "Real-time file sync via WebSocket",
+    "Multiple themes (6 built-in options)",
+    "Portable local web server"
+  ],
+  "publicApiSurface": [
+    "markdown-os open <file-or-directory>",
+    "markdown-os example",
+    "FileHandler.read()",
+    "FileHandler.write(content)",
+    "DirectoryHandler.get_file_tree()",
+    "DirectoryHandler.get_file_handler(relative_path)",
+    "GET /api/content",
+    "POST /api/save",
+    "POST /api/images",
+    "GET /api/file-tree",
+    "WebSocket /ws"
+  ]
+}
