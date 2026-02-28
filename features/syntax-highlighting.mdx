@@ -1,0 +1,446 @@
+---
+title: Syntax Highlighting
+description: Beautiful code syntax highlighting with highlight.js supporting 190+ languages, line numbers, copy buttons, and theme integration
+---
+
+# Syntax Highlighting
+
+Markdown-OS provides comprehensive syntax highlighting for code blocks using highlight.js. The editor supports 190+ programming languages with automatic language detection, line numbers, copy functionality, and theme-synchronized color schemes.
+
+## Creating Code Blocks
+
+Code blocks are created using fenced code blocks with an optional language identifier:
+
+````markdown
+```javascript
+function hello(name) {
+  console.log(`Hello, ${name}!`);
+}
+```
+````
+
+<Info>
+The language identifier (e.g., `javascript`) is used for syntax highlighting. If omitted, the code is displayed as plain text.
+</Info>
+
+## Supported Languages
+
+highlight.js supports a wide range of languages including:
+
+### Popular Languages
+- **JavaScript/TypeScript**: `javascript`, `typescript`, `jsx`, `tsx`
+- **Python**: `python`, `py`
+- **Java/Kotlin**: `java`, `kotlin`
+- **C/C++/C#**: `c`, `cpp`, `csharp`, `cs`
+- **Go**: `go`, `golang`
+- **Rust**: `rust`, `rs`
+- **Ruby**: `ruby`, `rb`
+- **PHP**: `php`
+- **Swift**: `swift`
+
+### Web Technologies
+- **HTML/XML**: `html`, `xml`
+- **CSS/SCSS**: `css`, `scss`, `sass`, `less`
+- **SQL**: `sql`, `mysql`, `postgresql`
+- **GraphQL**: `graphql`, `gql`
+- **JSON**: `json`
+- **YAML**: `yaml`, `yml`
+
+### Shell & Config
+- **Bash/Shell**: `bash`, `sh`, `shell`
+- **PowerShell**: `powershell`, `ps1`
+- **Dockerfile**: `dockerfile`
+- **Nginx**: `nginx`
+- **Apache**: `apache`
+
+### Markup & Data
+- **Markdown**: `markdown`, `md`
+- **LaTeX**: `latex`, `tex`
+- **TOML**: `toml`
+- **INI**: `ini`
+
+<Tip>
+For the complete list of supported languages, see the [highlight.js documentation](https://highlightjs.readthedocs.io/en/latest/supported-languages.html).
+</Tip>
+
+## Code Block Features
+
+Every code block is enhanced with interactive features:
+
+### Visual Components
+
+<Steps>
+  <Step title="Language Label">
+    Top-left corner shows the programming language (e.g., "javascript", "python")
+  </Step>
+  <Step title="Line Numbers">
+    Left gutter displays line numbers for easy reference
+  </Step>
+  <Step title="Copy Button">
+    Top-right copy icon copies the entire code block to clipboard
+  </Step>
+  <Step title="Edit Button">
+    Edit icon opens a modal to modify the code and change the language
+  </Step>
+</Steps>
+
+### Implementation
+
+```javascript:wysiwyg.js:281-351
+function buildCodeBlock(codeElement) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "code-block";
+  wrapper.setAttribute("contenteditable", "false");
+  
+  const codeSource = codeElement.textContent || "";
+  wrapper.dataset.rawSource = codeSource;
+  wrapper.dataset.language = languageLabel;
+  
+  // Create header with language label and actions
+  const header = document.createElement("div");
+  header.className = "code-block-header";
+  
+  const label = document.createElement("span");
+  label.className = "code-language-label";
+  label.textContent = languageLabel;
+  
+  const actions = document.createElement("div");
+  actions.className = "code-block-actions";
+  
+  // Copy button
+  const copyButton = createActionButton("copy", "Copy code");
+  copyButton.addEventListener("click", async (event) => {
+    await copyToClipboard(wrapper.dataset.rawSource || "");
+    flashCopied(copyButton);
+  });
+  
+  // Edit button
+  const editButton = createActionButton("edit", "Edit code block");
+  editButton.addEventListener("click", (event) => {
+    openBlockEditor("code", wrapper);
+  });
+  
+  // Apply syntax highlighting
+  if (window.hljs && !codeElement.classList.contains("hljs")) {
+    window.hljs.highlightElement(codeElement);
+  }
+}
+```
+
+## Line Numbers
+
+Line numbers are automatically generated based on the code content:
+
+```javascript:wysiwyg.js:177-197
+function countCodeLines(content) {
+  if (!content) {
+    return 1;
+  }
+  return Math.max(1, content.split("\n").length);
+}
+
+function createLineNumberGutter(lineCount) {
+  const gutter = document.createElement("div");
+  gutter.className = "code-line-numbers";
+  gutter.setAttribute("aria-hidden", "true");
+  
+  for (let line = 1; line <= lineCount; line += 1) {
+    const lineNumber = document.createElement("span");
+    lineNumber.className = "code-line-number";
+    lineNumber.textContent = String(line);
+    gutter.appendChild(lineNumber);
+  }
+  
+  return gutter;
+}
+```
+
+<Info>
+Line numbers are marked with `aria-hidden="true"` to prevent screen readers from announcing them.
+</Info>
+
+## Copy Functionality
+
+The copy button provides visual feedback when code is copied:
+
+```javascript:wysiwyg.js:199-214
+async function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  
+  // Fallback for older browsers
+  const fallbackInput = document.createElement("textarea");
+  fallbackInput.value = text;
+  fallbackInput.setAttribute("readonly", "true");
+  fallbackInput.style.position = "absolute";
+  fallbackInput.style.left = "-9999px";
+  document.body.appendChild(fallbackInput);
+  fallbackInput.select();
+  document.execCommand("copy");
+  document.body.removeChild(fallbackInput);
+}
+```
+
+### Copy Feedback
+
+```javascript:wysiwyg.js:245-279
+function flashCopied(button) {
+  const originalIcon = button.innerHTML;
+  const originalTitle = button.getAttribute("title");
+  
+  // Clear any existing timer
+  const previousTimerId = button.dataset.copyTimerId;
+  if (previousTimerId) {
+    window.clearTimeout(Number.parseInt(previousTimerId, 10));
+  }
+  
+  // Show checkmark
+  button.innerHTML = actionIconSvg("check");
+  button.setAttribute("title", "Copied");
+  button.classList.add("copied");
+  
+  // Restore after 1.5 seconds
+  const timerId = window.setTimeout(() => {
+    button.classList.remove("copied");
+    button.innerHTML = originalIcon;
+    button.setAttribute("title", originalTitle);
+    delete button.dataset.copyTimerId;
+  }, 1500);
+  
+  button.dataset.copyTimerId = String(timerId);
+}
+```
+
+<Tip>
+The copy button temporarily changes to a checkmark for 1.5 seconds after successful copy, providing clear visual feedback.
+</Tip>
+
+## Editing Code Blocks
+
+Click the edit button to modify code:
+
+<Accordion title="Edit Modal">
+  The block editor opens with:
+  - **Title**: "Edit code block"
+  - **Source textarea**: Pre-filled with current code
+  - **Language input**: Current language identifier (e.g., "javascript")
+  - **Save/Cancel buttons**: Keyboard shortcuts supported
+</Accordion>
+
+<Accordion title="Applying Changes">
+  After saving:
+  1. Source and language are stored in data attributes
+  2. New line numbers are generated based on updated content
+  3. highlight.js re-highlights the code with the new language
+  4. Change event is emitted for auto-save
+</Accordion>
+
+```javascript:wysiwyg.js:1353-1392
+async function applyBlockEdit() {
+  const sourceInput = document.getElementById("block-edit-source");
+  const languageInput = document.getElementById("block-edit-language");
+  const source = sourceInput.value;
+  
+  if (state.blockEditType === "code") {
+    const language = languageInput?.value?.trim() || "text";
+    state.blockEditTarget.dataset.rawSource = source;
+    state.blockEditTarget.dataset.language = language;
+    
+    // Rebuild code element
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.className = `language-${language}`;
+    code.textContent = source;
+    pre.appendChild(code);
+    
+    // Update content
+    const content = state.blockEditTarget.querySelector(".code-block-content");
+    content.innerHTML = "";
+    content.appendChild(createLineNumberGutter(countCodeLines(source)));
+    content.appendChild(pre);
+    
+    // Update language label
+    const label = state.blockEditTarget.querySelector(".code-language-label");
+    label.textContent = language;
+    
+    // Re-highlight
+    if (window.hljs) {
+      window.hljs.highlightElement(code);
+    }
+    
+    closeBlockEditor();
+    emitChange();
+  }
+}
+```
+
+## Theme Integration
+
+highlight.js color schemes synchronize with the active editor theme:
+
+```javascript:theme.js:3-14
+const THEMES = [
+  { id: "light", highlightTheme: "github" },
+  { id: "dark", highlightTheme: "github-dark" },
+  { id: "dracula", highlightTheme: "base16/dracula" },
+  { id: "nord-light", highlightTheme: "github" },
+  { id: "nord-dark", highlightTheme: "nord" },
+  { id: "lofi", highlightTheme: "grayscale" },
+];
+```
+
+### Dynamic Theme Loading
+
+```javascript:theme.js:321-332
+function updateHighlightTheme(highlightThemeId) {
+  if (!this.highlightTheme) {
+    return;
+  }
+  
+  const highlightHref = `${HIGHLIGHT_THEME_BASE}/${highlightThemeId}.min.css`;
+  if (this.highlightTheme.getAttribute("href") === highlightHref) {
+    return;
+  }
+  
+  this.highlightTheme.setAttribute("href", highlightHref);
+}
+```
+
+<Info>
+Theme stylesheets are loaded from the highlight.js CDN dynamically when the theme changes.
+</Info>
+
+## Language Detection
+
+If no language is specified, the code is labeled as "text":
+
+```javascript:wysiwyg.js:167-175
+function inferLanguageLabel(codeElement) {
+  const languageClass = Array.from(codeElement.classList).find((className) =>
+    className.startsWith("language-"),
+  );
+  if (!languageClass) {
+    return "text";
+  }
+  return languageClass.replace("language-", "");
+}
+```
+
+<Note>
+Code blocks without a language identifier are not syntax-highlighted but still get line numbers, copy buttons, and edit functionality.
+</Note>
+
+## Markdown Serialization
+
+When saving, code blocks are converted back to fenced code blocks:
+
+```javascript:wysiwyg.js:902-922
+turndownService.addRule("fencedCode", {
+  filter(node) {
+    return node.nodeType === Node.ELEMENT_NODE && node.nodeName === "PRE";
+  },
+  replacement(_content, node) {
+    const codeNode = node.firstElementChild;
+    if (!codeNode || codeNode.nodeName !== "CODE") {
+      return "\n\n```\n```\n\n";
+    }
+    
+    const codeText = codeNode.textContent || "";
+    const languageClass = Array.from(codeNode.classList).find((className) =>
+      className.startsWith("language-"),
+    );
+    const language = languageClass
+      ? languageClass.replace("language-", "")
+      : "";
+    
+    return `\n\n\`\`\`${language}\n${codeText}\n\`\`\`\n\n`;
+  },
+});
+```
+
+<Tip>
+The serialization uses the raw source from `data-raw-source` attributes to preserve the original code exactly.
+</Tip>
+
+## Code Block Structure
+
+Each code block has a specific DOM structure:
+
+```html
+<div class="code-block" contenteditable="false" data-raw-source="..." data-language="javascript">
+  <div class="code-block-header">
+    <span class="code-language-label">javascript</span>
+    <div class="code-block-actions">
+      <button class="action-icon-button block-edit-trigger" title="Edit code block">...</button>
+      <button class="action-icon-button copy-button" title="Copy code">...</button>
+    </div>
+  </div>
+  <div class="code-block-content">
+    <div class="code-line-numbers" aria-hidden="true">
+      <span class="code-line-number">1</span>
+      <span class="code-line-number">2</span>
+      <!-- ... -->
+    </div>
+    <pre><code class="language-javascript hljs"><!-- highlighted code --></code></pre>
+  </div>
+</div>
+```
+
+<Info>
+The wrapper has `contenteditable="false"` to prevent accidental editing, requiring users to use the edit button instead.
+</Info>
+
+## Cleanup on Serialization
+
+Before converting to markdown, UI elements are removed:
+
+```javascript:wysiwyg.js:927-957
+function cleanupForSerialization(cloneRoot) {
+  // Remove buttons and controls
+  cloneRoot.querySelectorAll(
+    ".copy-button, .block-edit-trigger, .code-line-numbers"
+  ).forEach((node) => {
+    node.remove();
+  });
+  
+  // Restore original code structure
+  cloneRoot.querySelectorAll(".code-block").forEach((wrapper) => {
+    const source = wrapper.dataset.rawSource || wrapper.querySelector("pre code")?.textContent;
+    const language = wrapper.dataset.language || "";
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    if (language) {
+      code.className = `language-${language}`;
+    }
+    code.textContent = source;
+    pre.appendChild(code);
+    wrapper.replaceWith(pre);
+  });
+}
+```
+
+## Performance Considerations
+
+<Note>
+**Large code blocks**: highlight.js handles code blocks with thousands of lines efficiently, but rendering many large blocks at once may cause brief delays.
+</Note>
+
+<Tip>
+**Lazy highlighting**: Consider splitting very large files into multiple smaller code blocks for better performance.
+</Tip>
+
+## Best Practices
+
+<Tip>
+**Always specify the language**: This enables proper syntax highlighting and helps readers understand the code context.
+</Tip>
+
+<Warning>
+**Avoid extremely long lines**: Lines over 200 characters may cause horizontal scrolling. Consider breaking them for better readability.
+</Warning>
+
+<Note>
+**Language aliases**: Many languages have multiple valid identifiers (e.g., `js` = `javascript`, `py` = `python`). Use the most common form for consistency.
+</Note>

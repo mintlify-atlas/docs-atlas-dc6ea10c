@@ -1,0 +1,497 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for Markdown-OS
+---
+
+## Port and Network Issues
+
+### Port Already in Use
+
+**Problem:** When starting Markdown-OS, you see an error about port availability.
+
+**Cause:** Another application is using the requested port.
+
+**Solution:**
+
+Markdown-OS automatically handles this by incrementing to the next available port. Check the console output to see which port was selected:
+
+```bash
+uv run markdown-os open ./notes.md --port 8000
+# Output: Opening file /home/user/notes.md at http://127.0.0.1:8001
+```
+
+<Note>
+  The auto-increment feature searches from your specified port up to 65535. If you want to force a specific port, first stop the application using that port.
+</Note>
+
+**Find which process is using a port:**
+
+```bash
+# On Linux/macOS
+lsof -i :8000
+
+# On Linux (alternative)
+ss -tlnp | grep :8000
+netstat -tlnp | grep :8000
+```
+
+### No Available Ports
+
+**Problem:** Error message: "No available TCP port found in range 8000-65535."
+
+**Cause:** All ports from your start port to 65535 are occupied (extremely rare).
+
+**Solution:**
+
+<Steps>
+  <Step title="Lower the start port">
+    Try a lower port number:
+    
+    ```bash
+    uv run markdown-os open ./notes.md --port 3000
+    ```
+  </Step>
+  
+  <Step title="Check system limits">
+    You may have hit system port exhaustion. Check for resource limits:
+    
+    ```bash
+    # Check open file/socket limits
+    ulimit -n
+    ```
+  </Step>
+  
+  <Step title="Close unnecessary services">
+    Stop other services to free up ports.
+  </Step>
+</Steps>
+
+### Invalid Port Number
+
+**Problem:** Error: "Start port must be between 1 and 65535."
+
+**Cause:** Port number is outside the valid range.
+
+**Solution:**
+
+Use a port between 1 and 65535:
+
+```bash
+# Invalid
+uv run markdown-os open ./notes.md --port 70000
+
+# Valid
+uv run markdown-os open ./notes.md --port 8000
+```
+
+<Note>
+  Ports below 1024 typically require administrator/root privileges. It's recommended to use ports 8000 and above for local development.
+</Note>
+
+### Cannot Access from Remote Machine
+
+**Problem:** Server runs locally but cannot be accessed from another machine on the network.
+
+**Cause:** Server is bound to `127.0.0.1` (localhost only).
+
+**Solution:**
+
+Bind to `0.0.0.0` to accept connections from all interfaces:
+
+```bash
+uv run markdown-os open ./notes.md --host 0.0.0.0 --port 8000
+```
+
+<Warning>
+  This exposes your files to anyone on the network without authentication. Only use in trusted networks.
+</Warning>
+
+**Firewall check:**
+
+Ensure your firewall allows incoming connections on the specified port:
+
+```bash
+# Linux (ufw)
+sudo ufw allow 8000/tcp
+
+# Linux (firewalld)
+sudo firewall-cmd --add-port=8000/tcp --permanent
+sudo firewall-cmd --reload
+```
+
+### Browser Doesn't Auto-Open
+
+**Problem:** Server starts but browser doesn't open automatically.
+
+**Cause:** This is normal in headless environments (cloud VMs, SSH sessions, containers).
+
+**Solution:**
+
+Manually open the URL shown in the console output:
+
+```bash
+uv run markdown-os open ./notes.md --host 0.0.0.0 --port 8000
+# Output: Opening file /home/user/notes.md at http://0.0.0.0:8000
+# → Navigate to this URL in your browser
+```
+
+<Note>
+  In cloud VMs, you may see harmless dbus errors in the logs like:
+  ```
+  dbus.exceptions.DBusException: org.freedesktop.DBus.Error.NotSupported
+  ```
+  These can be safely ignored - the server is working correctly.
+</Note>
+
+## File and Path Issues
+
+### File Does Not Exist
+
+**Problem:** Error: "File does not exist: /path/to/file.md"
+
+**Cause:** The specified path doesn't exist.
+
+**Solution:**
+
+<Steps>
+  <Step title="Verify the path">
+    ```bash
+    ls -la /path/to/file.md
+    ```
+  </Step>
+  
+  <Step title="Use absolute or relative paths">
+    ```bash
+    # Absolute path
+    uv run markdown-os open /home/user/notes.md
+    
+    # Relative path
+    uv run markdown-os open ./notes.md
+    
+    # Home directory expansion
+    uv run markdown-os open ~/notes.md
+    ```
+  </Step>
+</Steps>
+
+### Path Is Not a File/Directory
+
+**Problem:** Error: "Path is not a file" or "Path is not a directory"
+
+**Cause:** You're trying to open a special file (socket, device, etc.) or there's a file/directory type mismatch.
+
+**Solution:**
+
+Ensure you're opening a regular markdown file or directory:
+
+```bash
+# Check file type
+file /path/to/item
+ls -la /path/to/item
+```
+
+### Unsupported File Type
+
+**Problem:** Error: "Only markdown files are supported (.md, .markdown)."
+
+**Cause:** File extension is not `.md` or `.markdown`.
+
+**Solution:**
+
+Use a markdown file:
+
+```bash
+# Invalid
+uv run markdown-os open ./notes.txt
+
+# Valid
+uv run markdown-os open ./notes.md
+uv run markdown-os open ./notes.markdown
+```
+
+### Directory Contains No Markdown Files
+
+**Problem:** Error: "Directory contains no markdown files (.md, .markdown)"
+
+**Cause:** The directory (including all subdirectories) has no `.md` or `.markdown` files.
+
+**Solution:**
+
+<Steps>
+  <Step title="Check directory contents">
+    ```bash
+    find /path/to/directory -name "*.md" -o -name "*.markdown"
+    ```
+  </Step>
+  
+  <Step title="Create a markdown file">
+    ```bash
+    echo "# My Notes" > /path/to/directory/notes.md
+    uv run markdown-os open /path/to/directory/
+    ```
+  </Step>
+</Steps>
+
+### Permission Denied
+
+**Problem:** Cannot read or write files.
+
+**Cause:** Insufficient file system permissions.
+
+**Solution:**
+
+Check and fix permissions:
+
+```bash
+# Check permissions
+ls -la /path/to/file.md
+
+# Fix permissions (if you own the file)
+chmod 644 /path/to/file.md
+
+# For directories
+chmod 755 /path/to/directory
+```
+
+## Installation and Dependency Issues
+
+### Command Not Found
+
+**Problem:** `markdown-os: command not found`
+
+**Cause:** Package not installed or not in PATH.
+
+**Solution:**
+
+<Steps>
+  <Step title="Install with uv">
+    ```bash
+    uv sync
+    ```
+  </Step>
+  
+  <Step title="Run with uv">
+    ```bash
+    uv run markdown-os open ./notes.md
+    ```
+  </Step>
+  
+  <Step title="Or install globally">
+    ```bash
+    uv pip install -e .
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Never use `pip install` directly. Markdown-OS uses `uv` as its package manager.
+</Warning>
+
+### Wrong Python Version
+
+**Problem:** Import errors or syntax errors on startup.
+
+**Cause:** Python version is below 3.11 (project specifies Python 3.13 in `.python-version`).
+
+**Solution:**
+
+Install the correct Python version with uv:
+
+```bash
+uv python install 3.13
+uv sync
+```
+
+### Missing Dependencies
+
+**Problem:** Import errors for packages like `fastapi`, `typer`, etc.
+
+**Cause:** Dependencies not installed.
+
+**Solution:**
+
+```bash
+uv sync
+```
+
+This reads `pyproject.toml` and `uv.lock` and installs all required dependencies.
+
+## Editor and UI Issues
+
+### Changes Not Saving
+
+**Problem:** Edits don't persist to disk.
+
+**Possible Causes:**
+
+<Accordion title="File lock conflict">
+  Another process may have the file locked.
+  
+  **Solution:** Close other applications that might be accessing the file. Markdown-OS creates `.md.lock` files for synchronization - these are temporary and should be automatically removed.
+</Accordion>
+
+<Accordion title="Permission issues">
+  **Solution:** Ensure you have write permissions:
+  
+  ```bash
+  ls -la /path/to/file.md
+  chmod 644 /path/to/file.md
+  ```
+</Accordion>
+
+<Accordion title="Network/WebSocket disconnected">
+  **Solution:** Check browser console for errors. Refresh the page to re-establish the connection.
+</Accordion>
+
+### External Changes Not Detected
+
+**Problem:** File changed outside the editor but UI doesn't update.
+
+**Cause:** WebSocket connection dropped or file watcher not working.
+
+**Solution:**
+
+<Steps>
+  <Step title="Check WebSocket connection">
+    Open browser DevTools (F12) and check the Console for WebSocket errors.
+  </Step>
+  
+  <Step title="Refresh the page">
+    The page will reload the current file content.
+  </Step>
+  
+  <Step title="Check watchdog functionality">
+    The server uses the Python `watchdog` library. Ensure it's installed:
+    
+    ```bash
+    uv sync
+    ```
+  </Step>
+</Steps>
+
+### Conflict Modal Appears
+
+**Problem:** Dialog showing "File was modified externally" with options to save/discard/cancel.
+
+**Cause:** The file was changed by another program while you have unsaved changes in the editor.
+
+**Solution:**
+
+This is **expected behavior** - Markdown-OS is protecting you from data loss. Choose an option:
+
+- **Save My Changes** - Overwrites the external changes with your edits
+- **Discard My Changes** - Loads the external version, losing your edits
+- **Cancel** - Keeps the modal open so you can copy your changes elsewhere
+
+<Note>
+  If you see this frequently, you may have another auto-save system (like a cloud sync tool) conflicting with Markdown-OS.
+</Note>
+
+### Images Not Loading
+
+**Problem:** Uploaded images don't display.
+
+**Cause:** Images not saved correctly or path issues.
+
+**Solution:**
+
+<Steps>
+  <Step title="Check image location">
+    Images are saved to an `images/` directory:
+    - **File mode:** `images/` adjacent to the markdown file
+    - **Folder mode:** `images/` in the workspace root
+    
+    ```bash
+    ls -la images/
+    ```
+  </Step>
+  
+  <Step title="Verify file size">
+    Maximum image size is 10MB. Larger files are rejected.
+  </Step>
+  
+  <Step title="Check supported formats">
+    Supported: PNG, JPG, JPEG, GIF, WEBP, SVG, BMP, ICO
+  </Step>
+</Steps>
+
+### Mermaid Diagrams Not Rendering
+
+**Problem:** Mermaid code blocks show as plain text.
+
+**Cause:** Invalid Mermaid syntax or JavaScript error.
+
+**Solution:**
+
+<Steps>
+  <Step title="Check syntax">
+    Use the Mermaid Live Editor (https://mermaid.live) to validate your diagram syntax.
+  </Step>
+  
+  <Step title="Check browser console">
+    Open DevTools (F12) and look for Mermaid-related errors.
+  </Step>
+  
+  <Step title="Ensure code block language is 'mermaid'">
+    ````markdown
+    ```mermaid
+    graph TD
+      A --> B
+    ```
+    ````
+  </Step>
+</Steps>
+
+## Performance Issues
+
+### Slow Loading in Folder Mode
+
+**Problem:** File tree takes a long time to load.
+
+**Cause:** Very large directory with many files.
+
+**Solution:**
+
+<Accordion title="Open a subdirectory instead">
+  ```bash
+  # Instead of opening the entire project
+  uv run markdown-os open ./large-project/
+  
+  # Open just the docs subdirectory
+  uv run markdown-os open ./large-project/docs/
+  ```
+</Accordion>
+
+<Accordion title="Use file mode for single files">
+  ```bash
+  uv run markdown-os open ./large-project/docs/specific-file.md
+  ```
+</Accordion>
+
+### High CPU Usage
+
+**Problem:** Server process consuming significant CPU.
+
+**Cause:** File watcher polling many files or frequent external changes.
+
+**Solution:**
+
+- Exclude the workspace from other file watchers (IDEs, cloud sync tools)
+- Close unnecessary tabs in folder mode (limit is 15 tabs)
+- Use file mode instead of folder mode when working on a single file
+
+## Getting Help
+
+If you encounter an issue not covered here:
+
+1. Check the console output for specific error messages
+2. Review the browser DevTools console (F12) for JavaScript errors
+3. Report issues at: https://github.com/anomalyco/opencode
+
+<Note>
+  When reporting issues, include:
+  - Full error message from console
+  - Command you ran
+  - Operating system and Python version
+  - Output of `uv --version`
+</Note>

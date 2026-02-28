@@ -1,0 +1,545 @@
+---
+title: Auto-Save & Conflict Detection
+description: Automatic content saving with debounced writes, conflict detection for external changes, and real-time WebSocket synchronization
+---
+
+# Auto-Save & Conflict Detection
+
+Markdown-OS provides intelligent auto-save functionality with conflict detection to prevent data loss. The system uses debounced saves, file locks, WebSocket notifications, and a conflict resolution dialog to handle concurrent edits safely.
+
+## Auto-Save System
+
+Changes are automatically saved after a brief pause in editing:
+
+<Steps>
+  <Step title="User Edits">
+    User types in the WYSIWYG editor, triggering change events
+  </Step>
+  <Step title="Debounce Timer">
+    A 1-second timer starts (or resets) on each edit
+  </Step>
+  <Step title="Automatic Save">
+    After 1 second of inactivity, content is saved to disk via `POST /api/save`
+  </Step>
+  <Step title="Save Status Update">
+    UI shows "Saving...", then "Saved" or error status
+  </Step>
+</Steps>
+
+<Info>
+The auto-save delay is configurable via `AUTOSAVE_DELAY_MS` constant (default: 1000ms).
+</Info>
+
+## Implementation
+
+### Editor Integration
+
+```javascript:editor.js:327-363
+function onEditorInput() {
+  const markdown = currentMarkdown();
+  
+  if (editorState.mode === "folder" && window.fileTabs?.isEnabled()) {
+    const activePath = window.fileTabs.getActiveTabPath();
+    const tabData = window.fileTabs.getTabData(activePath);
+    tabData.content = markdown;
+    const isDirty = window.fileTabs.updateTabDirtyState(activePath);
+    if (isDirty) {
+      setSaveStatus("Unsaved changes");
+      window.fileTabs.queueTabAutosave(activePath);
+    }
+    queueTOCUpdate();
+    return;
+  }
+  
+  if (markdown !== editorState.lastSavedContent) {
+    setSaveStatus("Unsaved changes");
+    queueAutosave();
+  }
+  
+  queueTOCUpdate();
+}
+
+function queueAutosave() {
+  if (editorState.saveTimeout) {
+    window.clearTimeout(editorState.saveTimeout);
+  }
+  
+  editorState.saveTimeout = window.setTimeout(() => {
+    if (editorState.mode === "folder" && !editorState.currentFilePath) {
+      return;
+    }
+    saveContent();
+  }, AUTOSAVE_DELAY_MS);
+}
+```
+
+### Save Request
+
+```javascript:editor.js:245-300
+async function saveContent() {
+  if (editorState.isSaving) {
+    return false;
+  }
+  
+  if (editorState.mode === "folder" && !editorState.currentFilePath) {
+    setSaveStatus("Select a file", "error");
+    return false;
+  }
+  
+  editorState.isSaving = true;
+  const content = currentMarkdown();
+  setSaveStatus("Saving...", "saving");
+  
+  try {
+    const payload = { content };
+    if (editorState.mode === "folder") {
+      payload.file = editorState.currentFilePath;
+    }
+    
+    const response = await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Save failed (${response.status})`);
+    }
+    
+    const responsePayload = await response.json();
+    editorState.lastSavedContent = content;
+    setSaveStatus("Saved", "saved");
+    return true;
+  } catch (error) {
+    console.error("Failed to save markdown content.", error);
+    setSaveStatus("Save failed", "error");
+    return false;
+  } finally {
+    editorState.isSaving = false;
+  }
+}
+```
+
+<Note>
+The `isSaving` flag prevents concurrent save requests, ensuring only one save operation runs at a time.
+</Note>
+
+## File Locking
+
+The backend uses POSIX file locks to coordinate concurrent access:
+
+```python:file_handler.py:144-168
+@contextmanager
+def _acquire_lock(self, exclusive: bool) -> Iterator[None]:
+    self._lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with self._lock_path.open("a+", encoding="utf-8") as lock_file:
+        self._lock_created = True
+        lock_flags = portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH
+        try:
+            portalocker.lock(lock_file, lock_flags)
+        except portalocker.LockException as exc:
+            raise FileWriteError(f"Failed to acquire lock: {self._lock_path}") from exc
+        try:
+            yield
+        finally:
+            portalocker.unlock(lock_file)
+```
+
+### Lock Semantics
+
+- **Shared locks (LOCK_SH)**: Multiple readers can access the file simultaneously
+- **Exclusive locks (LOCK_EX)**: Only one writer can access the file at a time
+- **Lock files**: Stored as `<filename>.md.lock` adjacent to the markdown file
+
+<Info>
+Lock files are automatically cleaned up when the handler instance is destroyed.
+</Info>
+
+## Atomic Writes
+
+Saves use atomic file replacement to prevent corruption:
+
+<Steps>
+  <Step title="Write to Temp File">
+    Content is written to `.{filename}.tmp` in the same directory
+  </Step>
+  <Step title="Fsync">
+    File descriptor is fsynced to ensure data is on disk
+  </Step>
+  <Step title="Atomic Replace">
+    `os.replace()` atomically replaces the original file
+  </Step>
+  <Step title="Cleanup">
+    Temp file is removed on any failure
+  </Step>
+</Steps>
+
+```python:file_handler.py:78-96
+def write(self, content: str) -> bool:
+    with self._acquire_lock(exclusive=True):
+        temp_path = self._write_temporary_file(content)
+        try:
+            os.replace(temp_path, self._filepath)
+        except OSError as exc:
+            self._safe_remove(temp_path)
+            raise FileWriteError(f"Failed to replace file: {self._filepath}") from exc
+        return True
+
+def _write_temporary_file(self, content: str) -> Path:
+    file_descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{self._filepath.name}.",
+        suffix=".tmp",
+        dir=str(self._filepath.parent),
+    )
+    with os.fdopen(file_descriptor, "w", encoding="utf-8") as temp_file:
+        temp_file.write(content)
+        temp_file.flush()
+        os.fsync(temp_file.fileno())
+    return Path(temp_name)
+```
+
+<Warning>
+Atomic replacement ensures that the file is never in a partially-written state, even if the process crashes during the write.
+</Warning>
+
+## External Change Detection
+
+The editor detects when files are modified externally using Watchdog:
+
+### File Watcher Setup
+
+```python:server.py:261-313
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    observer = Observer()
+    loop = asyncio.get_running_loop()
+    
+    def notify_external_change(changed_path: Path) -> None:
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(
+                _broadcast_external_change(app, changed_path)
+            )
+        )
+    
+    if app.state.mode == "file":
+        event_handler = MarkdownPathEventHandler(
+            target_file=file_handler.filepath,
+            notify_callback=notify_external_change,
+            should_ignore=lambda: _should_ignore_watcher_event(app),
+        )
+        watch_path = str(file_handler.filepath.parent)
+        recursive = False
+    else:
+        event_handler = MarkdownPathEventHandler(
+            root_directory=directory_handler.directory,
+            notify_callback=notify_external_change,
+            should_ignore=lambda: _should_ignore_watcher_event(app),
+        )
+        watch_path = str(directory_handler.directory)
+        recursive = True
+    
+    observer.schedule(event_handler, path=watch_path, recursive=recursive)
+    observer.start()
+    
+    try:
+        yield
+    finally:
+        observer.stop()
+        observer.join(timeout=3)
+```
+
+### Event Filtering
+
+```python:server.py:178-209
+def _handle_event(self, event: FileSystemEvent) -> None:
+    if event.is_directory:
+        return
+    
+    event_path_value = getattr(event, "dest_path", None) or event.src_path
+    try:
+        resolved_event_path = Path(event_path_value).resolve()
+    except OSError:
+        return
+    
+    if not self._is_relevant_path(resolved_event_path):
+        return
+    if self._should_ignore():
+        return
+    
+    # Throttle to max one notification per 0.2s
+    now = time.monotonic()
+    if now - self._last_notified_at < 0.2:
+        return
+    
+    self._last_notified_at = now
+    self._notify_callback(resolved_event_path)
+```
+
+<Info>
+Events are throttled to one notification per 200ms to prevent flooding from rapid successive changes.
+</Info>
+
+## WebSocket Notifications
+
+External changes are broadcast to connected clients via WebSocket:
+
+```python:server.py:647-686
+async def _broadcast_external_change(app: FastAPI, changed_path: Path) -> None:
+    if app.state.mode == "file":
+        file_handler = _require_file_handler(app)
+        try:
+            content = file_handler.read()
+        except FileReadError:
+            return
+        
+        await app.state.websocket_hub.broadcast_json(
+            {"type": "file_changed", "content": content}
+        )
+        return
+    
+    directory_handler = _require_directory_handler(app)
+    try:
+        relative_path = changed_path.relative_to(directory_handler.directory).as_posix()
+    except ValueError:
+        return
+    
+    payload: dict[str, str] = {"type": "file_changed", "file": relative_path}
+    if directory_handler.validate_file_path(relative_path):
+        try:
+            file_handler = directory_handler.get_file_handler(relative_path)
+            payload["content"] = file_handler.read()
+        except (FileReadError, FileNotFoundError, ValueError):
+            pass
+    
+    await app.state.websocket_hub.broadcast_json(payload)
+```
+
+### Client-Side Handling
+
+```javascript:editor.js:365-414
+async function handleExternalChange(detail) {
+  if (!detail || typeof detail.content !== "string") {
+    return;
+  }
+  
+  if (editorState.mode === "folder" && detail.file !== editorState.currentFilePath) {
+    return;
+  }
+  
+  const content = currentMarkdown();
+  if (detail.content === content) {
+    return;
+  }
+  
+  const hasUnsavedChanges = content !== editorState.lastSavedContent;
+  if (!hasUnsavedChanges) {
+    // No conflict: reload automatically
+    await setMarkdown(detail.content, { silent: true });
+    editorState.lastSavedContent = detail.content;
+    if (typeof window.generateTOC === "function") {
+      window.generateTOC();
+    }
+    setSaveStatus("Reloaded from disk", "saved");
+    return;
+  }
+  
+  // Conflict: show dialog
+  const shouldReload = await window.markdownDialogs?.confirm?.({
+    title: "External Change Detected",
+    message: "This file was changed externally and you have unsaved changes. Reload and discard your changes?",
+    confirmText: "Reload",
+    cancelText: "Keep mine",
+    confirmVariant: "danger",
+  });
+  
+  if (!shouldReload) {
+    setSaveStatus("External change ignored");
+    return;
+  }
+  
+  await setMarkdown(detail.content, { silent: true });
+  editorState.lastSavedContent = detail.content;
+  setSaveStatus("Reloaded from disk", "saved");
+}
+```
+
+<Tip>
+If there are no unsaved changes, the editor reloads automatically. If there are unsaved changes, a confirmation dialog is shown.
+</Tip>
+
+## Conflict Detection
+
+When switching files or receiving external changes, conflicts are detected:
+
+### Detection Logic
+
+```javascript:editor.js:157-180
+async function checkForExternalChanges(filePath = null) {
+  const requestUrl = buildContentUrl(filePath);
+  if (!requestUrl) {
+    return false;
+  }
+  
+  try {
+    const response = await fetch(requestUrl);
+    if (!response.ok) {
+      return false;
+    }
+    
+    const payload = await response.json();
+    const diskContent = payload.content || "";
+    return diskContent !== editorState.lastSavedContent;
+  } catch (error) {
+    console.error("Failed to check for external changes.", error);
+    return false;
+  }
+}
+```
+
+### Conflict Dialog
+
+When a conflict is detected, a 3-button modal is shown:
+
+```javascript:editor.js:182-243
+async function showConflictDialog() {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("conflict-modal");
+    const overlay = document.getElementById("conflict-overlay");
+    const saveButton = document.getElementById("conflict-save");
+    const discardButton = document.getElementById("conflict-discard");
+    const cancelButton = document.getElementById("conflict-cancel");
+    
+    const previousFocus = document.activeElement;
+    const previousScrollTop = window.wysiwyg?.getScrollTop?.() ?? null;
+    let choiceMade = false;
+    
+    const choose = (choice) => {
+      if (choiceMade) return;
+      choiceMade = true;
+      modal.classList.add("hidden");
+      overlay.classList.add("hidden");
+      cleanup();
+      focusWithoutScroll(previousFocus);
+      if (Number.isFinite(previousScrollTop)) {
+        window.requestAnimationFrame(() => {
+          window.wysiwyg?.setScrollTop?.(previousScrollTop);
+        });
+      }
+      resolve(choice);
+    };
+    
+    saveButton.onclick = () => choose("save");
+    discardButton.onclick = () => choose("discard");
+    cancelButton.onclick = () => choose("cancel");
+    overlay.onclick = () => choose("cancel");
+    
+    modal.classList.remove("hidden");
+    overlay.classList.remove("hidden");
+    focusWithoutScroll(saveButton);
+  });
+}
+```
+
+<Steps>
+  <Step title="Save My Changes">
+    Overwrites the external changes with your local changes
+  </Step>
+  <Step title="Discard My Changes">
+    Reloads the file from disk, losing your local changes
+  </Step>
+  <Step title="Cancel">
+    Closes the dialog and keeps your local changes without switching files
+  </Step>
+</Steps>
+
+<Warning>
+Choosing "Save My Changes" will overwrite any external edits. Review the changes carefully before deciding.
+</Warning>
+
+## Internal Write Tracking
+
+The server tracks internal writes to ignore self-triggered watcher events:
+
+```python:server.py:614-626
+def _should_ignore_watcher_event(app: FastAPI) -> bool:
+    return (time.monotonic() - app.state.last_internal_write_at) < 0.5
+
+@app.post("/api/save")
+async def save_content(payload: SaveRequest) -> dict[str, object]:
+    file_handler.write(payload.content)
+    app.state.last_internal_write_at = time.monotonic()
+    # ...
+```
+
+<Info>
+Events within 500ms of an internal write are ignored, preventing the editor from reloading its own changes.
+</Info>
+
+## Save Status Indicator
+
+The UI displays the current save state:
+
+- **Loaded**: Initial state after loading a file
+- **Unsaved changes**: Content has been edited but not saved
+- **Saving...**: Save request is in progress
+- **Saved**: Content successfully saved to disk
+- **Save failed**: Error occurred during save
+- **Reloaded from disk**: External changes were reloaded
+- **External change ignored**: User chose to keep local changes
+- **Select a file**: No file is currently active (folder mode)
+
+```javascript
+function setSaveStatus(message, variant = "default") {
+  const indicator = document.getElementById("save-status");
+  if (!indicator) return;
+  
+  indicator.textContent = message;
+  indicator.className = `save-status save-status-${variant}`;
+}
+```
+
+## Multi-File Tab Support
+
+In folder mode with tabs enabled, auto-save tracks per-tab state:
+
+```javascript:editor.js:330-349
+if (editorState.mode === "folder" && window.fileTabs?.isEnabled()) {
+  const activePath = window.fileTabs.getActiveTabPath();
+  if (!activePath) {
+    setSaveStatus("Select a file", "error");
+    return;
+  }
+  
+  const tabData = window.fileTabs.getTabData(activePath);
+  tabData.content = markdown;
+  const isDirty = window.fileTabs.updateTabDirtyState(activePath);
+  if (isDirty) {
+    setSaveStatus("Unsaved changes");
+    window.fileTabs.queueTabAutosave(activePath);
+  }
+  queueTOCUpdate();
+  return;
+}
+```
+
+<Note>
+Each tab has its own dirty state, last saved content, and auto-save timer, allowing independent tracking of multiple files.
+</Note>
+
+## Best Practices
+
+<Tip>
+**Wait for save confirmation**: The save status indicator shows "Saved" when changes are persisted. Wait for this before closing the browser.
+</Tip>
+
+<Warning>
+**Don't edit externally during active sessions**: While conflict detection protects against data loss, it's best to avoid concurrent edits from multiple sources.
+</Warning>
+
+<Note>
+**Browser refresh**: Unsaved changes are lost on browser refresh. Always wait for the auto-save to complete.
+</Note>
+
+<Info>
+**Manual save**: You can trigger a manual save by clicking away from the editor or switching to another tab (in folder mode).
+</Info>

@@ -1,0 +1,300 @@
+---
+title: Installation
+description: Install Markdown-OS using pip or uv package manager. Supports Python 3.11+.
+---
+
+# Installation
+
+Markdown-OS is distributed as a Python package on PyPI. You can install it using `pip` or the modern `uv` package manager.
+
+## Requirements
+
+<CardGroup cols={2}>
+  <Card title="Python Version" icon="python">
+    Python 3.11 or higher (3.11, 3.12, 3.13 tested)
+  </Card>
+  <Card title="Operating System" icon="desktop">
+    Linux, macOS, or Windows (with POSIX compatibility notes)
+  </Card>
+</CardGroup>
+
+<Note>
+  File locking uses POSIX `fcntl` and is optimized for Linux/macOS. Windows users may need WSL for full compatibility.
+</Note>
+
+## Install with pip
+
+The standard Python package installer:
+
+```bash
+pip install markdown-os
+```
+
+This installs the `markdown-os` CLI command globally in your Python environment.
+
+<Warning>
+  Installing with pip in your global Python environment may cause dependency conflicts. Consider using a virtual environment or `pipx` for isolated installation.
+</Warning>
+
+### Using pipx (Recommended)
+
+For isolated CLI tool installation:
+
+```bash
+pipx install markdown-os
+```
+
+This creates an isolated environment and adds the command to your PATH without affecting other Python packages.
+
+## Install with uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) is a fast, modern Python package manager. It's the recommended installation method for Markdown-OS.
+
+### Install uv
+
+If you don't have uv installed:
+
+<CodeGroup>
+```bash macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+```bash Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+</CodeGroup>
+
+### Install Markdown-OS
+
+Use uv's tool installer for clean, isolated installation:
+
+```bash
+uv tool install markdown-os
+```
+
+This creates an isolated environment and makes the `markdown-os` command available globally.
+
+<Note>
+  The `uv tool install` command is similar to `pipx install` but uses uv's faster resolver and installer.
+</Note>
+
+## Verify Installation
+
+Check that Markdown-OS is installed correctly:
+
+```bash
+markdown-os --help
+```
+
+You should see output like:
+
+```text
+Usage: markdown-os [OPTIONS] COMMAND [ARGS]...
+
+  Open and edit markdown files in a local browser UI.
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  example  Generate a showcase markdown file that demonstrates...
+  open     Start a local web editor for a markdown file or...
+```
+
+## Upgrading
+
+### Upgrade with pip
+
+```bash
+pip install --upgrade markdown-os
+```
+
+### Upgrade with uv
+
+```bash
+uv tool upgrade markdown-os
+```
+
+<Note>
+  Check the [GitHub releases](https://github.com/elena-cabrera/markdown-os/releases) or [PyPI page](https://pypi.org/project/markdown-os/) for the latest version.
+</Note>
+
+## Uninstalling
+
+### Uninstall with pip
+
+```bash
+pip uninstall markdown-os
+```
+
+### Uninstall with uv
+
+```bash
+uv tool uninstall markdown-os
+```
+
+## Dependencies
+
+Markdown-OS automatically installs the following Python dependencies:
+
+| Package | Version | Purpose |
+| --- | --- | --- |
+| `fastapi` | ≥0.129.0 | Web framework for the server |
+| `python-multipart` | ≥0.0.22 | Multipart form parsing for image uploads |
+| `typer` | ≥0.23.1 | CLI framework |
+| `uvicorn[standard]` | ≥0.40.0 | ASGI server |
+| `portalocker` | ≥3.0.0 | Cross-platform file locking |
+| `watchdog` | ≥6.0.0 | File system monitoring |
+| `websockets` | ≥16.0 | WebSocket support for live sync |
+
+These are handled automatically during installation.
+
+## Development Installation
+
+If you want to contribute to Markdown-OS or run the development version:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/elena-cabrera/markdown-os.git
+    cd markdown-os
+    ```
+  </Step>
+  
+  <Step title="Install uv (if needed)">
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    uv sync
+    ```
+    
+    This reads `pyproject.toml` and installs all dependencies including dev tools.
+  </Step>
+  
+  <Step title="Run from source">
+    ```bash
+    uv run markdown-os open ./example.md
+    ```
+  </Step>
+</Steps>
+
+### Running Tests
+
+The project includes 61 async-compatible tests using pytest:
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
+
+# Run specific test file
+uv run pytest tests/test_cli.py
+
+# Run single test
+uv run pytest tests/test_cli.py::test_validate_markdown_file_returns_resolved_path
+```
+
+## Troubleshooting
+
+### Command Not Found
+
+If `markdown-os` is not found after installation:
+
+1. **Check your PATH**: Ensure pip/uv's bin directory is in your PATH
+2. **Reinstall**: Try uninstalling and reinstalling
+3. **Use full path**: Try `python -m markdown_os.cli` instead
+
+### Python Version Errors
+
+Markdown-OS requires Python 3.11+. Check your version:
+
+```bash
+python --version
+```
+
+If you have multiple Python versions:
+
+```bash
+python3.11 -m pip install markdown-os
+```
+
+Or with uv:
+
+```bash
+uv python install 3.13
+uv tool install markdown-os
+```
+
+### Import Errors
+
+If you see import errors, ensure all dependencies are installed:
+
+```bash
+pip install --force-reinstall markdown-os
+```
+
+### Port Already in Use
+
+Markdown-OS defaults to port 8000 but auto-increments if occupied. Watch the CLI output for the actual URL:
+
+```text
+Opening file /path/to/notes.md at http://127.0.0.1:8001
+```
+
+You can also specify a custom port:
+
+```bash
+markdown-os open notes.md --port 9000
+```
+
+## Platform-Specific Notes
+
+### macOS
+
+<Note>
+  macOS users should have no issues. The app opens your default browser automatically.
+</Note>
+
+### Linux
+
+Linux users may see harmless dbus warnings when the browser auto-opens:
+
+```text
+No GSettings schemas are installed on the system
+```
+
+These can be ignored. The server still works perfectly.
+
+### Windows
+
+Windows users should use WSL (Windows Subsystem for Linux) for best compatibility due to file locking differences:
+
+```bash
+wsl --install
+```
+
+Then install and run Markdown-OS from within WSL.
+
+## Cloud VMs and Remote Access
+
+If running on a cloud VM or remote server, bind to `0.0.0.0` to allow external access:
+
+```bash
+markdown-os open notes.md --host 0.0.0.0 --port 8000
+```
+
+<Warning>
+  Binding to `0.0.0.0` exposes your files to the network without authentication. Only use this on trusted networks or with proper firewall rules.
+</Warning>
+
+## Next Steps
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Learn how to use Markdown-OS with real examples
+</Card>

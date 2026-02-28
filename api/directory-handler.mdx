@@ -1,0 +1,437 @@
+---
+title: DirectoryHandler
+description: Manage multiple markdown files within a directory workspace with caching and path validation
+---
+
+The `DirectoryHandler` class manages a directory of markdown files, providing file tree navigation, cached `FileHandler` instances, and path validation to prevent directory traversal attacks.
+
+## Class Definition
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(directory=Path("./docs"))
+```
+
+## Constructor
+
+<ParamField path="directory" type="Path" required>
+  Root directory path containing markdown files. The path will be expanded and resolved automatically.
+</ParamField>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+# Create a handler for a directory
+handler = DirectoryHandler(Path("~/Documents/notes"))
+
+# The directory path is normalized and resolved
+print(handler.directory)  # /home/user/Documents/notes
+```
+
+## Properties
+
+### directory
+
+Exposes the root directory path.
+
+```python
+@property
+def directory(self) -> Path
+```
+
+<ResponseField name="directory" type="Path">
+  The resolved absolute path to the workspace directory.
+</ResponseField>
+
+### Example
+
+```python
+handler = DirectoryHandler(Path("./docs"))
+print(handler.directory)  # /absolute/path/to/docs
+```
+
+## Methods
+
+### list_files()
+
+List all markdown files in the directory recursively.
+
+```python
+def list_files(self, extensions: set[str] | None = None) -> list[Path]
+```
+
+<ParamField path="extensions" type="set[str] | None">
+  File extensions to include (case-insensitive). Defaults to `{".md", ".markdown"}` if not specified.
+</ParamField>
+
+<ResponseField name="files" type="list[Path]">
+  Sorted list of markdown file paths **relative to the root directory**, ordered by POSIX path (case-insensitive).
+</ResponseField>
+
+<Note>
+  The returned paths are relative to the directory root and use forward slashes (POSIX format) regardless of platform.
+</Note>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(Path("./docs"))
+
+# List all markdown files
+files = handler.list_files()
+for file in files:
+    print(file)  # Outputs: path/to/file.md (relative paths)
+
+# List specific extensions
+files = handler.list_files(extensions={".md"})
+```
+
+**Sample Output:**
+
+```python
+[
+    Path('README.md'),
+    Path('guides/getting-started.md'),
+    Path('guides/advanced.md'),
+    Path('api/reference.md')
+]
+```
+
+### get_file_tree()
+
+Build a nested tree structure of markdown files and folders.
+
+```python
+def get_file_tree(self) -> dict[str, Any]
+```
+
+<ResponseField name="tree" type="dict[str, Any]">
+  Nested dictionary representing folder/file structure with the following schema:
+  
+  **Folder nodes:**
+  - `type`: `"folder"`
+  - `name`: Folder name (string)
+  - `path`: Relative POSIX path from root (string)
+  - `children`: List of child nodes (folders and files)
+  
+  **File nodes:**
+  - `type`: `"file"`
+  - `name`: File name with extension (string)
+  - `path`: Relative POSIX path from root (string)
+</ResponseField>
+
+<Note>
+  The tree is sorted with folders first (alphabetically), then files (alphabetically). All sorting is case-insensitive.
+</Note>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+import json
+
+handler = DirectoryHandler(Path("./docs"))
+tree = handler.get_file_tree()
+
+print(json.dumps(tree, indent=2))
+```
+
+**Sample Output:**
+
+```json
+{
+  "type": "folder",
+  "name": "docs",
+  "path": "",
+  "children": [
+    {
+      "type": "folder",
+      "name": "guides",
+      "path": "guides",
+      "children": [
+        {
+          "type": "file",
+          "name": "getting-started.md",
+          "path": "guides/getting-started.md"
+        },
+        {
+          "type": "file",
+          "name": "advanced.md",
+          "path": "guides/advanced.md"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "name": "README.md",
+      "path": "README.md"
+    }
+  ]
+}
+```
+
+### get_file_handler()
+
+Get or create a cached `FileHandler` for a specific markdown file.
+
+```python
+def get_file_handler(self, relative_path: str) -> FileHandler
+```
+
+<ParamField path="relative_path" type="str" required>
+  File path relative to the root directory (e.g., `"guides/intro.md"`). Can use forward or backslashes - they will be normalized.
+</ParamField>
+
+<ResponseField name="handler" type="FileHandler">
+  A cached or newly created `FileHandler` instance for the specified file.
+</ResponseField>
+
+<Warning>
+  This method validates that the path:
+  1. Is relative (not absolute)
+  2. Stays within the workspace directory (no `..` escapes)
+  3. Points to a markdown file (`.md` or `.markdown` extension)
+  4. Exists on disk
+  
+  Violations raise `ValueError` or `FileNotFoundError`.
+</Warning>
+
+**Raises:**
+- `ValueError` - If path is absolute, escapes workspace, or is not a markdown file
+- `FileNotFoundError` - If the file does not exist
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(Path("./docs"))
+
+try:
+    # Get handler for a specific file
+    file_handler = handler.get_file_handler("guides/intro.md")
+    content = file_handler.read()
+    print(content)
+except (ValueError, FileNotFoundError) as e:
+    print(f"Error: {e}")
+
+# Subsequent calls return the cached handler
+same_handler = handler.get_file_handler("guides/intro.md")
+assert file_handler is same_handler  # True - same instance
+```
+
+### validate_file_path()
+
+Check if a relative path points to a valid markdown file in the directory.
+
+```python
+def validate_file_path(self, relative_path: str) -> bool
+```
+
+<ParamField path="relative_path" type="str" required>
+  File path relative to the root directory to validate.
+</ParamField>
+
+<ResponseField name="is_valid" type="bool">
+  `True` if file exists and is a markdown file within the directory boundaries, `False` otherwise.
+</ResponseField>
+
+<Note>
+  This method never raises exceptions - it returns `False` for any invalid path, including directory traversal attempts.
+</Note>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(Path("./docs"))
+
+# Valid paths
+assert handler.validate_file_path("README.md") == True
+assert handler.validate_file_path("guides/intro.md") == True
+
+# Invalid paths
+assert handler.validate_file_path("../etc/passwd") == False  # Directory traversal
+assert handler.validate_file_path("/absolute/path.md") == False  # Absolute path
+assert handler.validate_file_path("nonexistent.md") == False  # Doesn't exist
+assert handler.validate_file_path("image.png") == False  # Not markdown
+```
+
+### cleanup()
+
+Clean up lock files for all cached file handlers.
+
+```python
+def cleanup(self) -> None
+```
+
+<Note>
+  This method has best-effort semantics and never raises exceptions. It iterates over all `FileHandler` instances created during the session and calls their `cleanup()` methods.
+</Note>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(Path("./docs"))
+try:
+    # Use multiple file handlers
+    h1 = handler.get_file_handler("file1.md")
+    h2 = handler.get_file_handler("file2.md")
+    # ... do work ...
+finally:
+    handler.cleanup()  # Cleans up all lock files
+```
+
+## Constants
+
+### MARKDOWN_EXTENSIONS
+
+Default set of markdown file extensions recognized by the handler.
+
+```python
+from markdown_os.directory_handler import MARKDOWN_EXTENSIONS
+
+print(MARKDOWN_EXTENSIONS)  # {".md", ".markdown"}
+```
+
+## Security Features
+
+### Path Validation
+
+The `DirectoryHandler` implements several security measures to prevent directory traversal attacks:
+
+1. **Relative path enforcement**: Absolute paths are rejected
+2. **Boundary checks**: Uses `Path.is_relative_to()` to ensure resolved paths stay within workspace
+3. **Path normalization**: Converts backslashes to forward slashes, resolves `.` and `..`
+4. **Extension validation**: Only allows `.md` and `.markdown` files
+
+### Example Attack Prevention
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+handler = DirectoryHandler(Path("./docs"))
+
+# These all return False or raise ValueError
+handler.validate_file_path("../../../etc/passwd")  # False
+handler.validate_file_path("/etc/passwd")  # False
+handler.validate_file_path("..\\..\\windows\\system32")  # False
+
+try:
+    handler.get_file_handler("../secret.md")  # Raises ValueError
+except ValueError as e:
+    print(e)  # "Path escapes the workspace directory."
+```
+
+## Handler Caching
+
+The `DirectoryHandler` caches `FileHandler` instances by normalized relative path:
+
+```python
+# Internal cache structure
+self._file_handlers: dict[str, FileHandler] = {}
+#   key: normalized POSIX path (e.g., "guides/intro.md")
+#   value: FileHandler instance
+```
+
+**Benefits:**
+- Reduces overhead of creating multiple handlers for the same file
+- Maintains consistent lock state per file
+- Automatically cleaned up on `cleanup()`
+
+**Example:**
+
+```python
+handler = DirectoryHandler(Path("./docs"))
+
+# First call creates handler
+h1 = handler.get_file_handler("intro.md")
+
+# Subsequent calls return cached instance
+h2 = handler.get_file_handler("intro.md")
+h3 = handler.get_file_handler("./intro.md")  # Normalized to "intro.md"
+
+assert h1 is h2 is h3  # All same instance
+```
+
+## Complete Usage Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+from markdown_os.file_handler import FileReadError
+
+def list_and_read_markdown_files(directory: Path) -> dict[str, str]:
+    """List all markdown files and read their contents."""
+    handler = DirectoryHandler(directory)
+    contents = {}
+    
+    try:
+        # Get all markdown files
+        files = handler.list_files()
+        print(f"Found {len(files)} markdown files")
+        
+        # Read each file
+        for file_path in files:
+            relative_path = file_path.as_posix()
+            
+            if handler.validate_file_path(relative_path):
+                try:
+                    file_handler = handler.get_file_handler(relative_path)
+                    content = file_handler.read()
+                    contents[relative_path] = content
+                    print(f"Read {relative_path}: {len(content)} chars")
+                except FileReadError as e:
+                    print(f"Failed to read {relative_path}: {e}")
+        
+        return contents
+        
+    finally:
+        # Clean up all lock files
+        handler.cleanup()
+
+# Usage
+results = list_and_read_markdown_files(Path("~/Documents/notes"))
+print(f"Successfully read {len(results)} files")
+```
+
+## Integration with FileHandler
+
+The `DirectoryHandler` creates and manages `FileHandler` instances:
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+
+dir_handler = DirectoryHandler(Path("./docs"))
+
+# Get a file handler
+file_handler = dir_handler.get_file_handler("intro.md")
+
+# Use FileHandler methods
+content = file_handler.read()
+metadata = file_handler.get_metadata()
+file_handler.write("# New Content")
+
+# The file handler's lock will be cleaned up when dir_handler.cleanup() is called
+```
+
+## Source Reference
+
+See the complete implementation in `markdown_os/directory_handler.py`.

@@ -1,0 +1,399 @@
+---
+title: Directory Mode
+description: Work with multiple markdown files in a directory workspace with file tree navigation and multi-tab editing
+---
+
+## Overview
+
+Directory mode (also called folder mode or workspace mode) allows you to edit multiple markdown files within a directory. You get a file tree sidebar, multi-file tabs, and URL-based file routing.
+
+## Opening a Directory
+
+<Steps>
+  <Step title="Open a directory">
+    Pass a directory path to the `open` command:
+
+    ```bash
+    markdown-os open ./docs/
+    ```
+
+    Or simply run `markdown-os` with no arguments to open the current directory:
+
+    ```bash
+    cd ~/my-project/docs
+    markdown-os
+    ```
+  </Step>
+
+  <Step title="Browse the file tree">
+    The left sidebar shows all markdown files in the directory recursively. Click any file to open it in a new tab.
+  </Step>
+
+  <Step title="Work with multiple files">
+    Open up to 15 files simultaneously in tabs. Each tab maintains its own edit history and scroll position.
+  </Step>
+</Steps>
+
+<Info>
+  Directory mode requires at least one markdown file (`.md` or `.markdown`) anywhere in the directory tree. Empty directories are rejected.
+</Info>
+
+## Directory Validation
+
+Before starting the server, Markdown-OS validates your directory:
+
+```python
+def _validate_markdown_directory(directory: Path) -> Path:
+    resolved_path = directory.expanduser().resolve()
+    if not resolved_path.exists():
+        raise typer.BadParameter(f"Path does not exist: {resolved_path}")
+    if not resolved_path.is_dir():
+        raise typer.BadParameter(f"Path is not a directory: {resolved_path}")
+    if not _directory_contains_markdown_files(resolved_path):
+        raise typer.BadParameter(
+            f"Directory contains no markdown files (.md, .markdown): {resolved_path}"
+        )
+    return resolved_path
+```
+
+The validator:
+- Resolves `~` (home directory) and relative paths
+- Confirms the path exists and is a directory
+- Recursively scans for at least one markdown file
+
+## File Tree
+
+### Structure
+
+The file tree is a nested JSON structure returned by `/api/file-tree`:
+
+```json
+{
+  "type": "folder",
+  "name": "docs",
+  "path": "",
+  "children": [
+    {
+      "type": "folder",
+      "name": "guides",
+      "path": "guides",
+      "children": [
+        {
+          "type": "file",
+          "name": "getting-started.md",
+          "path": "guides/getting-started.md"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "name": "README.md",
+      "path": "README.md"
+    }
+  ]
+}
+```
+
+Folders appear before files at each level, sorted alphabetically (case-insensitive).
+
+### Search
+
+The file tree includes a search box that filters files and folders by name:
+
+```javascript
+// Search is case-insensitive and matches anywhere in the path
+// Example: "get" matches "guides/getting-started.md"
+```
+
+<Tip>
+  Use the search box to quickly find files in large documentation projects. Only matching files and their parent folders are shown.
+</Tip>
+
+### Collapsible Folders
+
+Folders can be collapsed and expanded. Folder state persists in `localStorage`:
+
+```javascript
+const FOLDER_STATE_KEY = "markdown-os-folder-state";
+```
+
+## Multi-file Tabs
+
+### Tab Limits
+
+Directory mode supports up to 15 open tabs simultaneously:
+
+```javascript
+const MAX_TABS = 15;
+```
+
+When you reach the limit, you must close an existing tab before opening a new file.
+
+<Warning>
+  Attempting to open more than 15 tabs shows an error message. Close unused tabs to free up space.
+</Warning>
+
+### Tab Features
+
+**Active Tab Indicator**  
+The currently active tab is visually highlighted:
+
+```css
+.file-tab.active {
+  background: var(--file-tab-active-bg);
+  color: var(--file-tab-active-text);
+  border-bottom: 2px solid var(--accent);
+}
+```
+
+**Dirty State Indicator**  
+Unsaved changes show a dot before the filename:
+
+```
+• getting-started.md
+```
+
+The dot color is theme-dependent (usually yellow/orange).
+
+**Close Buttons**  
+Each tab has an `×` close button. Closing a dirty tab prompts for confirmation:
+
+```javascript
+const confirmed = await MarkdownOS.confirm(
+  "You have unsaved changes. Close this tab anyway?"
+);
+```
+
+**Smart Naming**  
+When multiple files share the same basename, tabs show disambiguating parent folders:
+
+```
+README.md          // Only one README.md
+guides/README.md   // Two README.md files, shows parent folder
+api/README.md
+```
+
+### Tab Persistence
+
+Open tabs and scroll positions are stored in `sessionStorage`:
+
+```javascript
+const TABS_KEY = "markdown-os-tabs";
+const ACTIVE_TAB_KEY = "markdown-os-active-tab";
+```
+
+When you reload the page:
+- Previously open tabs reopen automatically
+- The last active tab is selected
+- Scroll positions are restored per tab
+- Unsaved content is lost (browser refresh limitation)
+
+<Note>
+  `sessionStorage` is per-tab in your browser. Opening the same directory in a new browser tab starts with a clean slate.
+</Note>
+
+## URL Routing
+
+Directory mode uses URL query parameters to identify the active file:
+
+```
+http://127.0.0.1:8000/?file=guides/getting-started.md
+```
+
+The `file` parameter is a POSIX-style path relative to the workspace root.
+
+### Navigation Sync
+
+<Steps>
+  <Step title="Clicking a file in the tree">
+    Updates the URL query parameter and loads the file content
+  </Step>
+
+  <Step title="Clicking a tab">
+    Updates the URL to match the tab's file path
+  </Step>
+
+  <Step title="Browser back/forward buttons">
+    Listens to `popstate` events and switches tabs accordingly
+  </Step>
+
+  <Step title="Direct URL access">
+    Opening `?file=guides/intro.md` directly opens that file in a new tab
+  </Step>
+</Steps>
+
+This enables:
+- Bookmarking specific files
+- Sharing links to documentation pages
+- Using browser history to navigate between files
+
+## File Handlers
+
+Directory mode uses a `DirectoryHandler` that caches `FileHandler` instances per file:
+
+```python
+class DirectoryHandler:
+    def __init__(self, directory: Path) -> None:
+        self._directory = directory.expanduser().resolve()
+        self._file_handlers: dict[str, FileHandler] = {}
+
+    def get_file_handler(self, relative_path: str) -> FileHandler:
+        normalized_path, absolute_path = self._resolve_relative_markdown_path(relative_path)
+        cached_handler = self._file_handlers.get(normalized_path)
+        if cached_handler is not None:
+            return cached_handler
+
+        file_handler = FileHandler(absolute_path)
+        self._file_handlers[normalized_path] = file_handler
+        return file_handler
+```
+
+**Path Security**  
+All file paths are validated to prevent directory traversal:
+
+```python
+def _resolve_relative_markdown_path(self, relative_path: str) -> tuple[str, Path]:
+    raw_path = Path(relative_path.replace("\\", "/"))
+    if raw_path.is_absolute():
+        raise ValueError("Path must be relative to the workspace directory.")
+
+    absolute_path = (self._directory / raw_path).resolve()
+    if not absolute_path.is_relative_to(self._directory):
+        raise ValueError("Path escapes the workspace directory.")
+```
+
+Attempts to access `../../../etc/passwd` or similar paths are rejected.
+
+## External File Changes
+
+In directory mode, the watchdog observer monitors the entire directory tree recursively:
+
+```python
+observer.schedule(
+    event_handler,
+    path=str(directory_handler.directory),
+    recursive=True,
+)
+```
+
+WebSocket notifications include a `file` field to identify which file changed:
+
+```json
+{
+  "type": "file_changed",
+  "file": "guides/getting-started.md",
+  "content": "# Getting Started\n\n..."
+}
+```
+
+The client only reloads the file if it's currently open in a tab.
+
+## Images in Directory Mode
+
+Images are stored in an `images/` directory at the workspace root:
+
+```
+my-docs/
+├── images/
+│   ├── diagram-20260228-143052-123456.png
+│   └── screenshot-20260228-143108-789012.jpg
+├── guides/
+│   ├── getting-started.md
+│   └── advanced.md
+└── README.md
+```
+
+All markdown files reference images using the same relative path:
+
+```markdown
+![Diagram](images/diagram-20260228-143052-123456.png)
+```
+
+This works from any file in the workspace because images are served at `/images/{filename}` by the server.
+
+## API Endpoints
+
+### GET /api/mode
+
+Returns the current server mode:
+
+```json
+{ "mode": "folder" }
+```
+
+### GET /api/file-tree
+
+Returns the nested directory structure (folder mode only).
+
+### GET /api/content?file=path/to/file.md
+
+Returns file content and metadata:
+
+```json
+{
+  "content": "# My Doc\n\nContent...",
+  "metadata": {
+    "path": "/home/user/docs/guides/intro.md",
+    "size_bytes": 1234,
+    "modified_at": 1709136652.123,
+    "created_at": 1709136000.456,
+    "relative_path": "guides/intro.md"
+  }
+}
+```
+
+The `relative_path` field is added in folder mode for client routing.
+
+### POST /api/save
+
+Saves content to a specific file:
+
+```json
+{
+  "content": "# Updated Content\n\n...",
+  "file": "guides/intro.md"
+}
+```
+
+The `file` field is required in folder mode.
+
+## Keyboard Shortcuts
+
+Directory mode adds tab navigation shortcuts:
+
+- `Cmd/Ctrl + 1-9` - Switch to tab 1-9
+- `Cmd/Ctrl + W` - Close current tab
+- `Cmd/Ctrl + T` - Focus file tree search
+
+All standard editor shortcuts also work. See the [Editor Features guide](/guides/editor-features).
+
+## Performance Considerations
+
+**Large Directories**  
+The file tree scans all markdown files recursively using `rglob("*")`:
+
+```python
+for candidate in self._directory.rglob("*"):
+    if not candidate.is_file():
+        continue
+    if candidate.suffix.lower() not in allowed_extensions:
+        continue
+    files.append(candidate.relative_to(self._directory))
+```
+
+Directories with thousands of files may experience slower initial load times.
+
+**Memory Usage**  
+Each open tab caches file content, scroll position, and edit history in memory. With the 15-tab limit, memory usage remains reasonable even for large files.
+
+**WebSocket Connections**  
+All browser tabs connected to the same server share a single WebSocket connection per tab. The `WebSocketHub` broadcasts file changes to all connected clients:
+
+```python
+async def broadcast_json(self, payload: dict[str, str]) -> None:
+    async with self._lock:
+        clients = list(self._clients)
+
+    for client in clients:
+        await client.send_json(payload)
+```

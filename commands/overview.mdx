@@ -1,0 +1,102 @@
+---
+title: CLI Overview
+description: Complete reference for the Markdown-OS command-line interface
+---
+
+Markdown-OS provides a simple CLI to launch a local web-based markdown editor. The CLI is built with [Typer](https://typer.tiangolo.com/) and supports both single-file and workspace directory modes.
+
+## Installation
+
+Install via pip:
+
+```bash
+pip install markdown-os
+```
+
+Or using uv (recommended):
+
+```bash
+uv tool install markdown-os
+```
+
+## Command Structure
+
+The CLI follows this pattern:
+
+```bash
+markdown-os [COMMAND] [ARGUMENTS] [OPTIONS]
+```
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `open` | Start a local web editor for a markdown file or directory |
+| `example` | Generate a showcase markdown file demonstrating features |
+| (no command) | Defaults to opening the current working directory |
+
+<Note>
+When invoked without a subcommand, Markdown-OS automatically runs `open` on the current working directory.
+</Note>
+
+## Default Behavior
+
+Running `markdown-os` with no arguments opens the current directory:
+
+```bash
+markdown-os
+# Equivalent to: markdown-os open .
+```
+
+**Source reference:** `cli.py:26-38`
+
+## Global Options
+
+All commands support standard CLI flags:
+
+- `--help` - Show command help and usage information
+- `--version` - Display installed package version
+
+## Entry Point
+
+The CLI is registered in `pyproject.toml` as:
+
+```toml
+[project.scripts]
+markdown-os = "markdown_os.cli:run"
+```
+
+This creates the `markdown-os` executable that invokes the `run()` function from `markdown_os.cli`.
+
+## Quick Start Examples
+
+<CodeGroup>
+
+```bash Single File
+markdown-os open ./notes.md
+```
+
+```bash Directory
+markdown-os open ./my-notes
+```
+
+```bash Current Directory
+markdown-os
+```
+
+```bash Generate Example
+markdown-os example --open
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="open command" icon="folder-open" href="/commands/open">
+    Launch the editor for files or directories
+  </Card>
+  <Card title="example command" icon="file-code" href="/commands/example">
+    Generate showcase markdown files
+  </Card>
+</CardGroup>

@@ -1,0 +1,535 @@
+---
+title: Themes
+description: Customize the editor appearance with 6 built-in themes and automatic dark mode support
+---
+
+## Available Themes
+
+Markdown-OS includes 6 built-in themes with automatic syntax highlighting and Mermaid coordination:
+
+<Tabs>
+  <Tab title="Default Light">
+    Clean, professional light theme with blue accents.
+
+    ```javascript
+    {
+      id: "light",
+      name: "Default Light",
+      type: "light",
+      dots: ["#f7f8fa", "#17233b", "#2563eb"],
+      highlightTheme: "github",
+      mermaidTheme: "default",
+    }
+    ```
+
+    - Background: `#f7f8fa` (light gray)
+    - Text: `#17233b` (dark blue-gray)
+    - Accent: `#2563eb` (blue)
+  </Tab>
+
+  <Tab title="Default Dark">
+    Modern dark theme with slate background and blue accents.
+
+    ```javascript
+    {
+      id: "dark",
+      name: "Default Dark",
+      type: "dark",
+      dots: ["#0f172a", "#e2e8f0", "#60a5fa"],
+      highlightTheme: "github-dark",
+      mermaidTheme: "dark",
+    }
+    ```
+
+    - Background: `#0f172a` (dark slate)
+    - Text: `#e2e8f0` (light gray)
+    - Accent: `#60a5fa` (light blue)
+  </Tab>
+
+  <Tab title="Dracula">
+    Popular Dracula theme with purple and pink accents.
+
+    ```javascript
+    {
+      id: "dracula",
+      name: "Dracula",
+      type: "dark",
+      dots: ["#282a36", "#f8f8f2", "#bd93f9"],
+      highlightTheme: "base16/dracula",
+      mermaidTheme: "dark",
+    }
+    ```
+
+    - Background: `#282a36` (dark purple-gray)
+    - Text: `#f8f8f2` (off-white)
+    - Accent: `#bd93f9` (purple)
+  </Tab>
+
+  <Tab title="Nord Light">
+    Nord-inspired light theme with cool blue-gray tones.
+
+    ```javascript
+    {
+      id: "nord-light",
+      name: "Nord Light",
+      type: "light",
+      dots: ["#eceff4", "#2e3440", "#5e81ac"],
+      highlightTheme: "github",
+      mermaidTheme: "neutral",
+    }
+    ```
+
+    - Background: `#eceff4` (snow white)
+    - Text: `#2e3440` (polar night)
+    - Accent: `#5e81ac` (frost blue)
+  </Tab>
+
+  <Tab title="Nord Dark">
+    Nord dark theme with aurora green accents.
+
+    ```javascript
+    {
+      id: "nord-dark",
+      name: "Nord Dark",
+      type: "dark",
+      dots: ["#2e3440", "#eceff4", "#88c0d0"],
+      highlightTheme: "nord",
+      mermaidTheme: "dark",
+    }
+    ```
+
+    - Background: `#2e3440` (polar night)
+    - Text: `#eceff4` (snow storm)
+    - Accent: `#88c0d0` (frost cyan)
+  </Tab>
+
+  <Tab title="Lofi">
+    Minimalist grayscale theme for distraction-free writing.
+
+    ```javascript
+    {
+      id: "lofi",
+      name: "Lofi",
+      type: "light",
+      dots: ["#f5f5f5", "#333333", "#555555"],
+      highlightTheme: "grayscale",
+      mermaidTheme: "neutral",
+    }
+    ```
+
+    - Background: `#f5f5f5` (light gray)
+    - Text: `#333333` (dark gray)
+    - Accent: `#555555` (medium gray)
+  </Tab>
+</Tabs>
+
+## Switching Themes
+
+### Theme Dropdown
+
+Click the color dots in the top-right corner to open the theme selector:
+
+```html
+<div id="theme-dropdown">
+  <button id="theme-dropdown-toggle" aria-label="Select theme">
+    <div id="theme-dots">
+      <span class="dot" style="background: var(--bg)"></span>
+      <span class="dot" style="background: var(--text)"></span>
+      <span class="dot" style="background: var(--accent)"></span>
+    </div>
+  </button>
+  <div id="theme-dropdown-menu" class="hidden">
+    <!-- Theme options -->
+  </div>
+</div>
+```
+
+The dropdown shows:
+- Theme name (e.g., "Default Dark")
+- Color preview dots (background, text, accent)
+- Active theme indicator (checkmark)
+
+### Keyboard Navigation
+
+The theme dropdown is fully keyboard accessible:
+
+- `Enter` or `Space` - Open/close dropdown
+- `Arrow Up/Down` - Navigate themes
+- `Enter` - Select highlighted theme
+- `Escape` - Close dropdown
+
+```javascript
+function onDropdownMenuKeyDown(event) {
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    navigateThemes(event.key === 'ArrowDown' ? 1 : -1);
+  } else if (event.key === 'Enter') {
+    event.preventDefault();
+    selectHighlightedTheme();
+  } else if (event.key === 'Escape') {
+    closeDropdown();
+  }
+}
+```
+
+## Theme Persistence
+
+Selected themes are saved to `localStorage`:
+
+```javascript
+const THEME_KEY = "markdown-os-theme";
+
+function persistTheme(themeId) {
+  try {
+    window.localStorage.setItem(THEME_KEY, themeId);
+  } catch (error) {
+    console.warn('Failed to save theme preference:', error);
+  }
+}
+
+function readSavedTheme() {
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_KEY);
+    if (themeById.has(storedTheme)) {
+      return storedTheme;
+    }
+  } catch (error) {
+    return null;
+  }
+}
+```
+
+Your theme preference persists across:
+- Browser restarts
+- Different files and directories
+- Multiple editor sessions
+
+<Info>
+  If `localStorage` is unavailable (private browsing, storage quota exceeded), themes fall back to system preference.
+</Info>
+
+## System Theme Detection
+
+On first launch, the editor detects your operating system's color scheme:
+
+```javascript
+function detectSystemTheme() {
+  const systemQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  return systemQuery.matches ? "dark" : "light";
+}
+```
+
+This uses the `prefers-color-scheme` CSS media query to match your system settings:
+- macOS: System Preferences → General → Appearance
+- Windows: Settings → Personalization → Colors
+- Linux: Varies by desktop environment
+
+<Tip>
+  Changing your system theme while the editor is open triggers automatic theme updates if you haven't manually selected a theme.
+</Tip>
+
+## Theme Architecture
+
+### CSS Custom Properties
+
+Themes are implemented with CSS variables in `themes.css`:
+
+```css
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --panel-bg: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #60a5fa;
+  --accent-soft: #1e3a5f;
+  --success: #14b8a6;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  
+  --editor-bg: #1e293b;
+  --editor-text: #e2e8f0;
+  --code-block-bg: #0f172a;
+  --modal-bg: #1e293b;
+  /* ...many more variables */
+}
+```
+
+All UI components reference these variables:
+
+```css
+.editor {
+  background: var(--editor-bg);
+  color: var(--editor-text);
+}
+
+.button-primary {
+  background: var(--accent);
+  color: white;
+}
+
+.code-block {
+  background: var(--code-block-bg);
+  border: 1px solid var(--border);
+}
+```
+
+### Theme Application
+
+When you select a theme, the `ThemeManager` class:
+
+1. **Sets data attribute** on `<html>` element:
+   ```javascript
+   document.documentElement.setAttribute('data-theme', themeId);
+   ```
+
+2. **Updates highlight.js stylesheet**:
+   ```javascript
+   const HIGHLIGHT_THEME_BASE = "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles";
+   highlightTheme.href = `${HIGHLIGHT_THEME_BASE}/${theme.highlightTheme}.min.css`;
+   ```
+
+3. **Configures Mermaid theme**:
+   ```javascript
+   mermaid.initialize({
+     theme: theme.mermaidTheme,
+     startOnLoad: false,
+   });
+   ```
+
+4. **Emits theme change event**:
+   ```javascript
+   window.dispatchEvent(new CustomEvent('themeChanged', {
+     detail: { themeId, theme }
+   }));
+   ```
+
+<Note>
+  Changing themes re-renders all Mermaid diagrams to match the new color scheme.
+</Note>
+
+## Syntax Highlighting
+
+### Highlight.js Integration
+
+Each theme specifies a `highlight.js` stylesheet:
+
+| Theme | Highlight.js Style |
+|-------|-------------------|
+| Default Light | `github` |
+| Default Dark | `github-dark` |
+| Dracula | `base16/dracula` |
+| Nord Light | `github` |
+| Nord Dark | `nord` |
+| Lofi | `grayscale` |
+
+The stylesheet is dynamically loaded:
+
+```javascript
+const highlightTheme = document.getElementById('highlight-theme');
+highlightTheme.href = `${HIGHLIGHT_THEME_BASE}/${theme.highlightTheme}.min.css`;
+```
+
+Code blocks are highlighted using:
+
+```javascript
+hljs.configure({
+  languages: ['javascript', 'python', 'bash', 'json', 'html', 'css', 'markdown']
+});
+
+document.querySelectorAll('pre code').forEach((block) => {
+  hljs.highlightElement(block);
+});
+```
+
+### Mermaid Theme Coordination
+
+Mermaid diagrams use theme-coordinated color schemes:
+
+```javascript
+const mermaidThemeMap = {
+  'light': 'default',
+  'dark': 'dark',
+  'dracula': 'dark',
+  'nord-light': 'neutral',
+  'nord-dark': 'dark',
+  'lofi': 'neutral',
+};
+
+mermaid.initialize({
+  theme: mermaidThemeMap[currentTheme],
+  themeVariables: {
+    primaryColor: getComputedStyle(document.documentElement)
+      .getPropertyValue('--accent').trim(),
+  },
+});
+```
+
+This ensures diagrams match your selected theme automatically.
+
+## Creating Custom Themes
+
+While Markdown-OS doesn't currently support user-defined themes in the UI, you can add custom themes by modifying the source:
+
+<Steps>
+  <Step title="Define theme object">
+    Add your theme to the `THEMES` array in `static/js/theme.js`:
+
+    ```javascript
+    {
+      id: "custom",
+      name: "My Custom Theme",
+      type: "dark", // or "light"
+      dots: ["#bg-color", "#text-color", "#accent-color"],
+      highlightTheme: "github-dark",
+      mermaidTheme: "dark",
+    }
+    ```
+  </Step>
+
+  <Step title="Add CSS variables">
+    Define your theme's CSS custom properties in `static/css/themes.css`:
+
+    ```css
+    [data-theme="custom"] {
+      color-scheme: dark;
+      --bg: #1a1a1a;
+      --panel-bg: #2a2a2a;
+      --border: #3a3a3a;
+      --text: #e0e0e0;
+      --text-muted: #a0a0a0;
+      --accent: #ff6b6b;
+      /* ...define all required variables */
+    }
+    ```
+  </Step>
+
+  <Step title="Test and refine">
+    Reload the editor and select your custom theme from the dropdown. Test all UI components to ensure consistent appearance.
+  </Step>
+</Steps>
+
+<Tip>
+  Copy an existing theme definition and modify colors incrementally. The `dots` array should contain representative colors for the preview in the theme dropdown.
+</Tip>
+
+## Theme Variables Reference
+
+Common variables used across themes:
+
+### Core Colors
+
+```css
+--bg                    /* Main background */
+--panel-bg              /* Sidebar and panel backgrounds */
+--border                /* Border color for dividers */
+--text                  /* Primary text color */
+--text-muted            /* Secondary/dimmed text */
+--accent                /* Brand/highlight color */
+--accent-soft           /* Subtle accent background */
+```
+
+### Semantic Colors
+
+```css
+--success               /* Success states (green) */
+--danger                /* Error/delete actions (red) */
+--warning               /* Warning states (yellow/orange) */
+--shadow                /* Drop shadow definition */
+```
+
+### Component-Specific
+
+```css
+--editor-bg             /* Editor content area background */
+--editor-text           /* Editor text color */
+--code-block-bg         /* Code block background */
+--code-header-bg        /* Code block header bar */
+--modal-bg              /* Dialog/modal background */
+--modal-overlay         /* Modal backdrop overlay */
+--table-border          /* Table cell borders */
+--table-header-bg       /* Table header background */
+```
+
+### File Tree & Tabs
+
+```css
+--file-tab-bg           /* Tab background */
+--file-tab-hover-bg     /* Tab hover state */
+--file-tab-active-text  /* Active tab text */
+--file-tab-dirty        /* Unsaved changes indicator */
+--file-tab-border       /* Tab border color */
+```
+
+## Accessibility Considerations
+
+### Color Contrast
+
+All themes meet WCAG AA contrast requirements for normal text (4.5:1):
+
+```javascript
+// Example contrast ratios
+// Default Light: #17233b on #f7f8fa = 11.2:1
+// Default Dark: #e2e8f0 on #0f172a = 13.8:1
+// Dracula: #f8f8f2 on #282a36 = 12.5:1
+```
+
+### Reduced Motion
+
+Theme transitions respect the `prefers-reduced-motion` setting:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+```
+
+### Focus Indicators
+
+Focus rings use theme-aware accent colors:
+
+```css
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+```
+
+## Performance
+
+### Theme Switching Speed
+
+Theme changes are near-instantaneous because:
+- CSS variables update synchronously
+- No page reload required
+- Highlight.js stylesheet loads from CDN cache
+- Mermaid diagrams re-render asynchronously
+
+### Initial Load
+
+The editor applies the saved theme before first paint to prevent flashing:
+
+```javascript
+init() {
+  const savedTheme = this.readSavedTheme();
+  const initialThemeId = savedTheme ?? this.detectSystemTheme();
+  this.applyTheme(initialThemeId, { emitThemeEvent: false });
+  
+  window.setTimeout(() => {
+    document.documentElement.classList.remove('loading');
+  }, 100);
+}
+```
+
+```css
+html.loading * {
+  transition: none !important;
+}
+```
+
+This prevents the brief flash of default styles during page load.

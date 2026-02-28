@@ -1,0 +1,511 @@
+---
+title: 'HTTP Endpoints'
+description: 'REST API reference for Markdown-OS client applications'
+---
+
+This page documents all HTTP endpoints exposed by the Markdown-OS server. Use these endpoints to interact with the editor programmatically from your client applications.
+
+## Base URL
+
+When running locally:
+```
+http://localhost:8000
+```
+
+When running in a cloud VM:
+```
+http://0.0.0.0:8000
+```
+
+<Note>
+The server auto-increments the port if 8000 is occupied. Check the CLI output for the actual URL.
+</Note>
+
+## Editor Interface
+
+### GET /
+
+Serves the main editor web application HTML page.
+
+**Response:** HTML document with the editor interface
+
+**Example:**
+
+<CodeGroup>
+```bash curl
+curl http://localhost:8000/
+```
+
+```python httpx
+import httpx
+
+response = httpx.get("http://localhost:8000/")
+html = response.text
+```
+
+```javascript fetch
+const response = await fetch('http://localhost:8000/');
+const html = await response.text();
+```
+</CodeGroup>
+
+### GET /favicon.ico
+
+Redirects to the SVG favicon at `/static/favicon.svg`.
+
+**Response:** 302 redirect
+
+---
+
+## Mode Information
+
+### GET /api/mode
+
+Returns the current server mode ("file" or "folder").
+
+**Response:**
+
+<ResponseField name="mode" type="string" required>
+  Either "file" (single file editing) or "folder" (directory workspace)
+</ResponseField>
+
+**Example:**
+
+<CodeGroup>
+```bash curl
+curl http://localhost:8000/api/mode
+```
+
+```python httpx
+import httpx
+
+response = httpx.get("http://localhost:8000/api/mode")
+data = response.json()
+print(data["mode"])  # "file" or "folder"
+```
+
+```javascript fetch
+const response = await fetch('http://localhost:8000/api/mode');
+const data = await response.json();
+console.log(data.mode);  // "file" or "folder"
+```
+</CodeGroup>
+
+**Sample Response:**
+```json
+{
+  "mode": "folder"
+}
+```
+
+---
+
+## File Tree
+
+### GET /api/file-tree
+
+Returns the markdown file tree structure for folder mode.
+
+<Warning>
+This endpoint is only available when the server is running in **folder mode**. Returns a 400 error in file mode.
+</Warning>
+
+**Response:**
+
+<ResponseField name="root" type="object">
+  Nested structure representing the directory tree with folders and markdown files
+</ResponseField>
+
+**Example:**
+
+<CodeGroup>
+```bash curl
+curl http://localhost:8000/api/file-tree
+```
+
+```python httpx
+import httpx
+
+response = httpx.get("http://localhost:8000/api/file-tree")
+tree = response.json()
+```
+
+```javascript fetch
+const response = await fetch('http://localhost:8000/api/file-tree');
+const tree = await response.json();
+```
+</CodeGroup>
+
+**Sample Response:**
+```json
+{
+  "name": "docs",
+  "type": "directory",
+  "children": [
+    {
+      "name": "getting-started",
+      "type": "directory",
+      "children": [
+        {
+          "name": "installation.md",
+          "type": "file",
+          "path": "getting-started/installation.md"
+        }
+      ]
+    },
+    {
+      "name": "README.md",
+      "type": "file",
+      "path": "README.md"
+    }
+  ]
+}
+```
+
+---
+
+## Content Management
+
+### GET /api/content
+
+Retrieve markdown content and metadata for a file.
+
+**Query Parameters:**
+
+<ParamField query="file" type="string">
+  Relative file path (required in folder mode, ignored in file mode)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="content" type="string" required>
+  Raw markdown content of the file
+</ResponseField>
+
+<ResponseField name="metadata" type="object" required>
+  File metadata including size, timestamps, and path information
+  
+  <ResponseField name="size" type="integer">
+    File size in bytes
+  </ResponseField>
+  
+  <ResponseField name="modified" type="string">
+    Last modified timestamp (ISO 8601 format)
+  </ResponseField>
+  
+  <ResponseField name="relative_path" type="string">
+    Relative path from workspace root (folder mode only)
+  </ResponseField>
+</ResponseField>
+
+**Example:**
+
+<CodeGroup>
+```bash curl (file mode)
+curl http://localhost:8000/api/content
+```
+
+```bash curl (folder mode)
+curl "http://localhost:8000/api/content?file=getting-started/installation.md"
+```
+
+```python httpx
+import httpx
+
+# Folder mode
+response = httpx.get(
+    "http://localhost:8000/api/content",
+    params={"file": "getting-started/installation.md"}
+)
+data = response.json()
+print(data["content"])
+```
+
+```javascript fetch
+// Folder mode
+const params = new URLSearchParams({ file: 'getting-started/installation.md' });
+const response = await fetch(`http://localhost:8000/api/content?${params}`);
+const data = await response.json();
+console.log(data.content);
+```
+</CodeGroup>
+
+**Sample Response:**
+```json
+{
+  "content": "# Installation\n\nInstall Markdown-OS using pip...\n",
+  "metadata": {
+    "size": 1024,
+    "modified": "2026-02-28T10:30:00Z",
+    "relative_path": "getting-started/installation.md"
+  }
+}
+```
+
+**Error Responses:**
+
+- `400`: Missing `file` parameter in folder mode or invalid file path
+- `404`: File not found
+- `500`: File read error
+
+---
+
+### POST /api/save
+
+Save markdown content to disk with atomic file replacement.
+
+**Request Body:**
+
+<ParamField body="content" type="string" required>
+  Markdown content to save
+</ParamField>
+
+<ParamField body="file" type="string">
+  Relative file path (required in folder mode, ignored in file mode)
+</ParamField>
+
+**Response:**
+
+<ResponseField name="status" type="string" required>
+  Always "saved" on success
+</ResponseField>
+
+<ResponseField name="metadata" type="object" required>
+  Updated file metadata after save
+  
+  <ResponseField name="size" type="integer">
+    New file size in bytes
+  </ResponseField>
+  
+  <ResponseField name="modified" type="string">
+    Updated timestamp (ISO 8601 format)
+  </ResponseField>
+  
+  <ResponseField name="relative_path" type="string">
+    Relative path from workspace root (folder mode only)
+  </ResponseField>
+</ResponseField>
+
+**Example:**
+
+<CodeGroup>
+```bash curl (file mode)
+curl -X POST http://localhost:8000/api/save \
+  -H "Content-Type: application/json" \
+  -d '{"content": "# Updated Content\n\nNew text here."}'
+```
+
+```bash curl (folder mode)
+curl -X POST http://localhost:8000/api/save \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "# Updated Content\n\nNew text here.",
+    "file": "getting-started/installation.md"
+  }'
+```
+
+```python httpx
+import httpx
+
+# Folder mode
+response = httpx.post(
+    "http://localhost:8000/api/save",
+    json={
+        "content": "# Updated Content\n\nNew text here.",
+        "file": "getting-started/installation.md"
+    }
+)
+data = response.json()
+print(data["status"])  # "saved"
+```
+
+```javascript fetch
+// Folder mode
+const response = await fetch('http://localhost:8000/api/save', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    content: '# Updated Content\n\nNew text here.',
+    file: 'getting-started/installation.md'
+  })
+});
+const data = await response.json();
+console.log(data.status);  // "saved"
+```
+</CodeGroup>
+
+**Sample Response:**
+```json
+{
+  "status": "saved",
+  "metadata": {
+    "size": 1156,
+    "modified": "2026-02-28T10:35:00Z",
+    "relative_path": "getting-started/installation.md"
+  }
+}
+```
+
+**Error Responses:**
+
+- `400`: Missing `file` parameter in folder mode or invalid file path
+- `404`: File not found (folder mode)
+- `500`: File write error
+
+<Note>
+Saving triggers a file watcher event, but the server ignores events from its own writes for 500ms to prevent infinite loops.
+</Note>
+
+---
+
+## Image Management
+
+### POST /api/images
+
+Upload an image to the workspace images directory.
+
+**Request:** `multipart/form-data` with file upload
+
+<ParamField body="file" type="file" required>
+  Image file to upload
+</ParamField>
+
+**Supported Formats:**
+- `.png`
+- `.jpg`, `.jpeg`
+- `.gif`
+- `.webp`
+- `.svg`
+- `.bmp`
+- `.ico`
+
+**Constraints:**
+- Maximum file size: **10 MB**
+- File must not be empty
+- Extension must be in the allowed list
+
+**Response:**
+
+<ResponseField name="path" type="string" required>
+  Relative path to use in markdown (e.g., `images/screenshot-20260228-103000-123456.png`)
+</ResponseField>
+
+<ResponseField name="filename" type="string" required>
+  Generated unique filename with timestamp
+</ResponseField>
+
+**Example:**
+
+<CodeGroup>
+```bash curl
+curl -X POST http://localhost:8000/api/images \
+  -F "file=@screenshot.png"
+```
+
+```python httpx
+import httpx
+
+with open("screenshot.png", "rb") as f:
+    response = httpx.post(
+        "http://localhost:8000/api/images",
+        files={"file": ("screenshot.png", f, "image/png")}
+    )
+data = response.json()
+print(f"![Screenshot]({data['path']})")
+```
+
+```javascript fetch
+const formData = new FormData();
+formData.append('file', fileInput.files[0]);
+
+const response = await fetch('http://localhost:8000/api/images', {
+  method: 'POST',
+  body: formData
+});
+const data = await response.json();
+console.log(`![Image](${data.path})`);
+```
+</CodeGroup>
+
+**Sample Response:**
+```json
+{
+  "path": "images/screenshot-20260228-103000-123456.png",
+  "filename": "screenshot-20260228-103000-123456.png"
+}
+```
+
+**Error Responses:**
+
+- `400`: Unsupported format, empty file, or file too large
+
+<Note>
+Filenames are sanitized and timestamped to prevent collisions. The original filename is preserved in the stem (e.g., `screenshot.png` becomes `screenshot-20260228-103000-123456.png`).
+</Note>
+
+---
+
+### GET /images/\{filename\}
+
+Serve an uploaded image from the workspace images directory.
+
+**Path Parameters:**
+
+<ParamField path="filename" type="string" required>
+  Image filename (can include subdirectories)
+</ParamField>
+
+**Response:** Image file with appropriate content type
+
+**Example:**
+
+<CodeGroup>
+```bash curl
+curl http://localhost:8000/images/screenshot-20260228-103000-123456.png \
+  -o downloaded.png
+```
+
+```python httpx
+import httpx
+
+response = httpx.get(
+    "http://localhost:8000/images/screenshot-20260228-103000-123456.png"
+)
+with open("downloaded.png", "wb") as f:
+    f.write(response.content)
+```
+
+```html markdown
+![Screenshot](http://localhost:8000/images/screenshot-20260228-103000-123456.png)
+```
+</CodeGroup>
+
+**Error Responses:**
+
+- `400`: Invalid path (contains `..` or starts with `/`)
+- `404`: Image not found
+
+**Security:**
+
+<Warning>
+Path traversal attempts are blocked. The server validates that resolved paths stay within the images directory.
+</Warning>
+
+---
+
+## Static Assets
+
+### GET /static/\{path\}
+
+Serves static frontend assets (JavaScript, CSS, fonts, icons).
+
+**Example:**
+```
+GET /static/favicon.svg
+GET /static/main.js
+GET /static/styles.css
+```
+
+<Note>
+Static files are served from the `markdown_os/static/` directory in the package.
+</Note>

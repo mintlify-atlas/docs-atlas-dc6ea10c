@@ -1,0 +1,271 @@
+---
+title: example
+description: Generate a showcase markdown file demonstrating Markdown-OS features
+---
+
+The `example` command creates a pre-populated markdown file that demonstrates all supported features including syntax highlighting, Mermaid diagrams, tables, and formatting options.
+
+## Usage
+
+```bash
+markdown-os example [OUTPUT] [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="OUTPUT" type="Path" default="example.md">
+  Output path for the generated showcase markdown file.
+  
+  **Behavior:**
+  - If OUTPUT is a directory, the file is created as `OUTPUT/example.md`
+  - If OUTPUT is a file path, uses that exact path
+  - Parent directories are created automatically if they don't exist
+  - Tilde (`~`) expansion is supported
+  
+  **Source:** `cli.py:273-276`
+</ParamField>
+
+## Options
+
+<ParamField path="--open" type="bool" default="false">
+  Automatically open the generated example file in the Markdown-OS editor after creation.
+  
+  When enabled, this flag chains the `example` command with `open`, equivalent to:
+  
+  ```bash
+  markdown-os example && markdown-os open example.md
+  ```
+  
+  **Source:** `cli.py:277-281`
+</ParamField>
+
+<ParamField path="--force" type="bool" default="false">
+  Overwrite existing files without prompting for confirmation.
+  
+  **Aliases:** `-f`, `--force`
+  
+  Without this flag, if the output file exists, you'll be prompted:
+  ```
+  File example.md already exists. Overwrite? [y/N]:
+  ```
+  
+  **Source:** `cli.py:282-287`
+</ParamField>
+
+## Examples
+
+<CodeGroup>
+
+```bash Default Location
+markdown-os example
+# Creates ./example.md in current directory
+```
+
+```bash Custom Path
+markdown-os example ./docs/showcase.md
+# Creates showcase.md in the docs folder
+```
+
+```bash Directory Target
+markdown-os example ~/Documents/
+# Creates ~/Documents/example.md
+```
+
+```bash Generate and Open
+markdown-os example --open
+# Creates example.md and launches the editor
+```
+
+```bash Force Overwrite
+markdown-os example --force
+# Overwrites existing example.md without asking
+```
+
+```bash Combined Flags
+markdown-os example ./tutorial.md --open --force
+# Overwrites tutorial.md and opens in editor
+```
+
+```bash Short Force Flag
+markdown-os example -f
+# Uses short form of --force
+```
+
+</CodeGroup>
+
+## Terminal Output
+
+### Success
+
+```bash
+$ markdown-os example
+Created example file: /home/user/example.md
+Next step:
+  markdown-os open /home/user/example.md
+```
+
+### With --open Flag
+
+```bash
+$ markdown-os example --open
+Created example file: /home/user/example.md
+Next step:
+  markdown-os open /home/user/example.md
+Opening in editor...
+Opening file /home/user/example.md at http://127.0.0.1:8000
+INFO:     Started server process [12345]
+...
+```
+
+### Overwrite Prompt
+
+```bash
+$ markdown-os example
+File /home/user/example.md already exists. Overwrite? [y/N]: n
+Cancelled.
+```
+
+### With --force Flag
+
+```bash
+$ markdown-os example --force
+Created example file: /home/user/example.md
+Next step:
+  markdown-os open /home/user/example.md
+```
+
+## Template Source
+
+The example content is loaded from a bundled template file:
+
+```python
+markdown_os/templates/example_template.md
+```
+
+This template is included in the package distribution and demonstrates:
+- Headings (H1-H6)
+- Text formatting (bold, italic, code)
+- Lists (ordered, unordered, nested)
+- Code blocks with syntax highlighting
+- Mermaid diagrams
+- Tables
+- Blockquotes
+- Horizontal rules
+- Links and images
+
+**Source:** `cli.py:201-213`
+
+## Behavior Details
+
+### Path Resolution
+
+1. **Tilde expansion**: `~/docs/example.md` → `/home/user/docs/example.md`
+2. **Directory detection**: If path exists and is a directory, appends `/example.md`
+3. **Absolute path**: All paths are resolved to absolute before writing
+
+**Source:** `cli.py:184-198`
+
+### File Writing Process
+
+1. **Parent directory creation**: `mkdir -p` equivalent (parents=True, exist_ok=True)
+2. **Template loading**: Read from package resources (UTF-8 encoding)
+3. **Write operation**: Save with UTF-8 encoding
+4. **Success message**: Print green confirmation with full resolved path
+5. **Next step hint**: Show suggested `open` command
+6. **Optional open**: If `--open` flag, chain to `open_markdown_file()`
+
+**Source:** `cli.py:301-332`
+
+### Overwrite Protection
+
+When the output file exists:
+
+<CodeGroup>
+
+```python Without --force
+if resolved_output.exists() and not force:
+    overwrite = typer.confirm(
+        f"File {resolved_output} already exists. Overwrite?",
+        default=False,
+    )
+    if not overwrite:
+        typer.echo("Cancelled.")
+        raise typer.Exit(code=0)
+```
+
+```python With --force
+# Skips confirmation, proceeds directly to write
+```
+
+</CodeGroup>
+
+**Source:** `cli.py:303-310`
+
+## Error Handling
+
+<CodeGroup>
+
+```bash Template Not Found
+$ markdown-os example
+Template file is missing. Expected markdown_os/templates/example_template.md.
+# Exit code: 1
+```
+
+```bash Write Permission Denied
+$ markdown-os example /root/example.md
+Failed to create example file: [Errno 13] Permission denied: '/root/example.md'
+# Exit code: 1
+```
+
+```bash Invalid Parent Directory
+$ markdown-os example /nonexistent/impossible/example.md
+Failed to create example file: [Errno 2] No such file or directory: '/nonexistent/impossible/example.md'
+# Exit code: 1
+```
+
+</CodeGroup>
+
+**Error handling source:** `cli.py:312-324`
+
+## Exit Codes
+
+| Code | Meaning |
+|------|----------|
+| 0 | Success (file created or user cancelled) |
+| 1 | Error (template missing, write failure, etc.) |
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket">
+    Generate an example and immediately start editing to learn the features:
+    ```bash
+    markdown-os example --open
+    ```
+  </Card>
+  
+  <Card title="Documentation Template" icon="file-lines">
+    Create a template for team documentation:
+    ```bash
+    markdown-os example ./docs/TEMPLATE.md
+    ```
+  </Card>
+  
+  <Card title="Testing Features" icon="vial">
+    Generate a file to test syntax highlighting and Mermaid rendering:
+    ```bash
+    markdown-os example test.md --open
+    ```
+  </Card>
+  
+  <Card title="CI/CD Integration" icon="gears">
+    Generate examples in automated scripts:
+    ```bash
+    markdown-os example ./output/demo.md --force
+    ```
+  </Card>
+</CardGroup>
+
+<Note>
+  The generated example file is a static snapshot of the template. It does **not** auto-update when the package is upgraded. To get the latest template, regenerate the file with `--force`.
+</Note>

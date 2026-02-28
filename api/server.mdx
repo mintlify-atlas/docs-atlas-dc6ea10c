@@ -1,0 +1,552 @@
+---
+title: Server API
+description: FastAPI application factory and server components for the Markdown-OS web editor
+---
+
+The `server.py` module provides the `create_app()` factory function that creates a FastAPI application with all routes, WebSocket support, and file system watching for the markdown editor.
+
+## create_app()
+
+Create the FastAPI application for the markdown editor.
+
+```python
+def create_app(
+    handler: FileHandler | DirectoryHandler,
+    mode: str = "file"
+) -> FastAPI
+```
+
+<ParamField path="handler" type="FileHandler | DirectoryHandler" required>
+  File or folder access service. Use `FileHandler` for single-file mode or `DirectoryHandler` for folder mode.
+</ParamField>
+
+<ParamField path="mode" type="str" default="file">
+  Editor mode, either `"file"` or `"folder"`. Must match the handler type.
+</ParamField>
+
+<ResponseField name="app" type="FastAPI">
+  Configured FastAPI application with routes, static assets, WebSocket support, and file system watching.
+</ResponseField>
+
+<Warning>
+  The `mode` parameter must be either `"file"` or `"folder"`. Any other value raises `ValueError`.
+</Warning>
+
+**Raises:**
+- `ValueError` - If mode is not `"file"` or `"folder"`
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.file_handler import FileHandler
+from markdown_os.directory_handler import DirectoryHandler
+from markdown_os.server import create_app
+import uvicorn
+
+# Single-file mode
+file_handler = FileHandler(Path("notes.md"))
+app = create_app(file_handler, mode="file")
+
+# Folder mode
+dir_handler = DirectoryHandler(Path("./docs"))
+app = create_app(dir_handler, mode="folder")
+
+# Run the server
+uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+## Application Lifecycle
+
+The application uses FastAPI's lifespan context manager to start and stop file system observers:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Start watchdog observer for file changes
+    observer = Observer()
+    observer.start()
+    
+    try:
+        yield  # Application runs
+    finally:
+        # Shutdown: Stop observer and cleanup handlers
+        observer.stop()
+        observer.join(timeout=3)
+        handler.cleanup()
+```
+
+## HTTP Routes
+
+### GET /
+
+Serve the editor web page.
+
+```python
+@app.get("/")
+async def read_root() -> FileResponse
+```
+
+<ResponseField name="response" type="FileResponse">
+  The main editor application HTML page (`index.html`).
+</ResponseField>
+
+### GET /favicon.ico
+
+Redirect browser default favicon.ico requests to the SVG favicon.
+
+```python
+@app.get("/favicon.ico")
+async def favicon() -> RedirectResponse
+```
+
+<ResponseField name="redirect" type="RedirectResponse">
+  302 redirect to `/static/favicon.svg`.
+</ResponseField>
+
+### GET /api/mode
+
+Return the current server mode.
+
+```python
+@app.get("/api/mode")
+async def get_mode() -> dict[str, str]
+```
+
+<ResponseField name="mode" type="dict[str, str]">
+  Mode payload with value `"file"` or `"folder"`.
+  
+  Example: `{"mode": "folder"}`
+</ResponseField>
+
+### GET /api/file-tree
+
+Return the markdown file tree for folder mode.
+
+```python
+@app.get("/api/file-tree")
+async def get_file_tree() -> dict[str, Any]
+```
+
+<ResponseField name="tree" type="dict[str, Any]">
+  Nested folder/file structure (see `DirectoryHandler.get_file_tree()` for schema).
+</ResponseField>
+
+<Warning>
+  This endpoint is only available in folder mode. Returns 400 error in file mode.
+</Warning>
+
+**Example Response:**
+
+```json
+{
+  "type": "folder",
+  "name": "docs",
+  "path": "",
+  "children": [
+    {
+      "type": "file",
+      "name": "intro.md",
+      "path": "intro.md"
+    },
+    {
+      "type": "folder",
+      "name": "guides",
+      "path": "guides",
+      "children": [...]
+    }
+  ]
+}
+```
+
+### GET /api/content
+
+Return markdown content and metadata.
+
+```python
+@app.get("/api/content")
+async def get_content(file: str | None = None) -> dict[str, object]
+```
+
+<ParamField path="file" type="str | None" query>
+  Relative file path in folder mode (e.g., `?file=guides/intro.md`). Not used in file mode.
+</ParamField>
+
+<ResponseField name="response" type="dict[str, object]">
+  Response containing:
+  - `content` (str): Markdown content as UTF-8 string
+  - `metadata` (dict): File metadata from `FileHandler.get_metadata()`
+    - In folder mode, includes additional `relative_path` field
+</ResponseField>
+
+**Raises:**
+- `HTTPException(400)` - If `file` parameter missing in folder mode or path invalid
+- `HTTPException(404)` - If file does not exist
+- `HTTPException(500)` - If file read fails
+
+**Example Response:**
+
+```json
+{
+  "content": "# Introduction\n\nWelcome to the docs...",
+  "metadata": {
+    "path": "/home/user/docs/intro.md",
+    "size_bytes": 1234,
+    "modified_at": 1709251234.567,
+    "created_at": 1709240000.123,
+    "relative_path": "intro.md"
+  }
+}
+```
+
+### POST /api/save
+
+Persist markdown content to disk with atomic file replacement.
+
+```python
+@app.post("/api/save")
+async def save_content(payload: SaveRequest) -> dict[str, object]
+```
+
+**Request Body (SaveRequest):**
+
+<ParamField path="content" type="str" required>
+  Full markdown document content to save.
+</ParamField>
+
+<ParamField path="file" type="str | None">
+  Relative file path in folder mode. Not used in file mode.
+</ParamField>
+
+<ResponseField name="response" type="dict[str, object]">
+  Response containing:
+  - `status` (str): Always `"saved"` on success
+  - `metadata` (dict): Updated file metadata after save
+</ResponseField>
+
+**Raises:**
+- `HTTPException(400)` - If `file` parameter missing in folder mode or path invalid
+- `HTTPException(404)` - If file does not exist
+- `HTTPException(500)` - If write fails
+
+<Note>
+  The server tracks internal writes with a timestamp to distinguish them from external file changes when file watching.
+</Note>
+
+**Example Request:**
+
+```json
+{
+  "content": "# Updated Content\n\nNew paragraph...",
+  "file": "guides/intro.md"
+}
+```
+
+**Example Response:**
+
+```json
+{
+  "status": "saved",
+  "metadata": {
+    "path": "/home/user/docs/guides/intro.md",
+    "size_bytes": 1456,
+    "modified_at": 1709251456.789,
+    "created_at": 1709240000.123,
+    "relative_path": "guides/intro.md"
+  }
+}
+```
+
+### POST /api/images
+
+Save an uploaded image in the workspace images directory.
+
+```python
+@app.post("/api/images")
+async def upload_image(file: UploadFile) -> dict[str, str]
+```
+
+<ParamField path="file" type="UploadFile" required>
+  Uploaded image data from multipart form payload.
+</ParamField>
+
+<ResponseField name="response" type="dict[str, str]">
+  Response containing:
+  - `path` (str): Relative image path for markdown (e.g., `"images/photo-20240301-123456.png"`)
+  - `filename` (str): Saved filename with timestamp
+</ResponseField>
+
+**Constraints:**
+- **Allowed extensions:** `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, `.ico`
+- **Maximum size:** 10 MB (10,485,760 bytes)
+- **Filename sanitization:** Non-alphanumeric characters replaced with hyphens, timestamp appended
+
+**Raises:**
+- `HTTPException(400)` - If file format unsupported, empty, or too large
+
+**Example Response:**
+
+```json
+{
+  "path": "images/screenshot-20240301-123456-789012.png",
+  "filename": "screenshot-20240301-123456-789012.png"
+}
+```
+
+### GET /images/\{filename:path\}
+
+Serve uploaded images from the workspace images directory.
+
+```python
+@app.get("/images/{filename:path}")
+async def serve_image(filename: str) -> FileResponse
+```
+
+<ParamField path="filename" type="str" required>
+  Relative filename under the images directory (e.g., `"photo.png"` or `"subdir/photo.png"`).
+</ParamField>
+
+<ResponseField name="response" type="FileResponse">
+  Streamed image file response when present.
+</ResponseField>
+
+<Warning>
+  This endpoint validates that the path stays within the images directory. Directory traversal attempts (e.g., `"../etc/passwd"`) return 400 error.
+</Warning>
+
+**Raises:**
+- `HTTPException(400)` - If path contains `..` or escapes images directory
+- `HTTPException(404)` - If image not found
+
+## WebSocket Routes
+
+### WS /ws
+
+Maintain WebSocket connections for external file-change notifications.
+
+```python
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket) -> None
+```
+
+<ParamField path="websocket" type="WebSocket" required>
+  Incoming WebSocket connection from the browser.
+</ParamField>
+
+**Message Format (Server → Client):**
+
+**File Mode:**
+```json
+{
+  "type": "file_changed",
+  "content": "# Updated markdown content..."
+}
+```
+
+**Folder Mode:**
+```json
+{
+  "type": "file_changed",
+  "file": "guides/intro.md",
+  "content": "# Updated markdown content..."
+}
+```
+
+<Note>
+  The WebSocket connection stays open until the client disconnects. Clients should reconnect automatically if the connection drops.
+</Note>
+
+**Behavior:**
+- Accepts connection and registers client in `WebSocketHub`
+- Keeps connection alive by receiving (and ignoring) client messages
+- Removes client on disconnect or error
+- Receives external file change notifications from watchdog observer
+
+## Helper Classes
+
+### WebSocketHub
+
+Manage active WebSocket clients and fan-out messages.
+
+```python
+class WebSocketHub:
+    async def connect(self, websocket: WebSocket) -> None
+    async def disconnect(self, websocket: WebSocket) -> None
+    async def broadcast_json(self, payload: dict[str, str]) -> None
+```
+
+**Methods:**
+
+<ParamField path="connect" type="async method">
+  Accept and register a new WebSocket client.
+</ParamField>
+
+<ParamField path="disconnect" type="async method">
+  Remove a WebSocket client from the active set.
+</ParamField>
+
+<ParamField path="broadcast_json" type="async method">
+  Send a JSON payload to all currently connected clients. Automatically removes stale clients that fail to receive.
+</ParamField>
+
+### MarkdownPathEventHandler
+
+Watchdog handler for markdown file changes in file or folder mode.
+
+```python
+class MarkdownPathEventHandler(FileSystemEventHandler):
+    def __init__(
+        self,
+        notify_callback: Callable[[Path], None],
+        should_ignore: Callable[[], bool],
+        target_file: Path | None = None,
+        root_directory: Path | None = None,
+    ) -> None
+```
+
+**Constructor Parameters:**
+
+<ParamField path="notify_callback" type="Callable[[Path], None]" required>
+  Callback invoked on external file changes with the changed file path.
+</ParamField>
+
+<ParamField path="should_ignore" type="Callable[[], bool]" required>
+  Callback returning `True` to ignore events (used to skip internal writes).
+</ParamField>
+
+<ParamField path="target_file" type="Path | None">
+  Single-file mode target markdown path. Mutually exclusive with `root_directory`.
+</ParamField>
+
+<ParamField path="root_directory" type="Path | None">
+  Folder-mode workspace root path. Mutually exclusive with `target_file`.
+</ParamField>
+
+**Event Handling:**
+- Listens for `modified`, `moved`, and `created` events
+- Filters out directory events (only files)
+- Validates events match target file or are markdown files in root directory
+- Throttles to max one notification per 0.2 seconds
+- Ignores events within 0.5 seconds of internal writes
+
+## App State
+
+The FastAPI app stores state in `app.state`:
+
+```python
+app.state.handler: FileHandler | DirectoryHandler  # File access handler
+app.state.mode: str  # "file" or "folder"
+app.state.current_file: str | None  # Current file in folder mode
+app.state.websocket_hub: WebSocketHub  # WebSocket client manager
+app.state.last_internal_write_at: float  # Timestamp of last save (monotonic)
+```
+
+## Complete Server Example
+
+```python
+from pathlib import Path
+from markdown_os.directory_handler import DirectoryHandler
+from markdown_os.server import create_app
+import uvicorn
+import asyncio
+
+async def main():
+    # Create directory handler
+    docs_dir = Path("~/Documents/notes").expanduser()
+    handler = DirectoryHandler(docs_dir)
+    
+    # Create FastAPI app
+    app = create_app(handler, mode="folder")
+    
+    # Configure uvicorn
+    config = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        access_log=True
+    )
+    
+    server = uvicorn.Server(config)
+    
+    try:
+        # Run server
+        print(f"Starting server for {docs_dir}")
+        print("Open http://localhost:8000 in your browser")
+        await server.serve()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        # Cleanup is handled automatically by app lifespan
+        pass
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## File Watching Details
+
+### Watch Configuration
+
+**File Mode:**
+- Watches: Parent directory of target file
+- Recursive: No
+- Events: Only for the specific target file
+
+**Folder Mode:**
+- Watches: Entire workspace directory
+- Recursive: Yes
+- Events: All `.md` and `.markdown` files
+
+### Event Throttling
+
+The file watcher implements two throttling mechanisms:
+
+1. **Time-based throttling:** Maximum one notification per 0.2 seconds
+2. **Internal write filtering:** Ignores events within 0.5 seconds of `POST /api/save` requests
+
+```python
+def _should_ignore_watcher_event(app: FastAPI) -> bool:
+    return (time.monotonic() - app.state.last_internal_write_at) < 0.5
+```
+
+<Note>
+  This prevents the editor from receiving notifications for its own save operations, which would cause unnecessary UI updates and potential conflicts.
+</Note>
+
+## Static Files
+
+Static assets are mounted from `markdown_os/static/`:
+
+```python
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+```
+
+**Available at:**
+- `/static/index.html` - Main editor HTML
+- `/static/js/*.js` - JavaScript modules
+- `/static/css/*.css` - Stylesheets
+- `/static/favicon.svg` - Application icon
+
+## Error Handling
+
+The server maps internal exceptions to HTTP status codes:
+
+| Exception | Status Code | Scenario |
+|-----------|-------------|----------|
+| `FileReadError` ("does not exist") | 404 | File not found |
+| `FileReadError` (other) | 500 | Read failure |
+| `FileWriteError` | 500 | Write failure |
+| `FileNotFoundError` | 404 | File not found |
+| `ValueError` | 400 | Invalid path or parameter |
+
+```python
+def _status_for_read_error(error: FileReadError) -> int:
+    if "does not exist" in str(error):
+        return 404
+    return 500
+```
+
+## Source Reference
+
+See the complete implementation in `markdown_os/server.py`.

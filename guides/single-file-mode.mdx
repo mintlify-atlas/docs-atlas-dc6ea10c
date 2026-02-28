@@ -1,0 +1,219 @@
+---
+title: Single File Mode
+description: Learn how to use Markdown-OS to edit a single markdown file with the WYSIWYG editor
+---
+
+## Overview
+
+Single file mode is the simplest way to use Markdown-OS. Point it at a single markdown file and start editing immediately in a local web interface.
+
+## Opening a File
+
+<Steps>
+  <Step title="Open a markdown file">
+    Use the `open` command with a path to any `.md` or `.markdown` file:
+
+    ```bash
+    markdown-os open notes.md
+    ```
+
+    The editor will automatically open in your default browser at `http://127.0.0.1:8000`.
+  </Step>
+
+  <Step title="Start editing">
+    The WYSIWYG editor loads your file content immediately. All changes auto-save after 1 second of inactivity.
+  </Step>
+</Steps>
+
+<Info>
+  If the file doesn't exist, you'll see an error. Create the file first with `touch notes.md` or use the `example` command to generate a showcase file.
+</Info>
+
+## File Validation
+
+Markdown-OS validates your file path before starting the server:
+
+- **File must exist** - Non-existent files are rejected
+- **Must be a file** - Directories require [directory mode](/guides/directory-mode)
+- **Must have markdown extension** - Only `.md` and `.markdown` files are supported
+
+```bash
+# Valid examples
+markdown-os open ./README.md
+markdown-os open ~/Documents/notes.md
+markdown-os open ../project/CHANGELOG.md
+
+# Invalid - will show error
+markdown-os open ./docs/          # Directory, not a file
+markdown-os open config.json      # Not a markdown file
+markdown-os open missing.md       # File doesn't exist
+```
+
+## Server Options
+
+### Custom Host and Port
+
+By default, the server binds to `127.0.0.1:8000`. You can customize this:
+
+```bash
+# Custom port
+markdown-os open notes.md --port 9000
+
+# Bind to all interfaces (useful for remote access)
+markdown-os open notes.md --host 0.0.0.0
+
+# Combine both options
+markdown-os open notes.md --host 0.0.0.0 --port 8080
+```
+
+<Warning>
+  Binding to `0.0.0.0` exposes your files to the network without authentication. Only use this on trusted networks.
+</Warning>
+
+### Port Auto-increment
+
+If your preferred port is occupied, Markdown-OS automatically tries the next available port:
+
+```bash
+markdown-os open notes.md --port 8000
+# Output: Opening file /path/to/notes.md at http://127.0.0.1:8001
+```
+
+The server scans ports from your specified start port up to 65535.
+
+## File Operations
+
+### Reading Files
+
+Files are read with shared locks (`LOCK_SH`) using the `portalocker` library. Multiple processes can read simultaneously, ensuring safe concurrent access.
+
+### Saving Files
+
+When you edit content, saves happen atomically:
+
+<Steps>
+  <Step title="Debounced auto-save">
+    After 1 second of inactivity, the editor triggers a save request
+  </Step>
+
+  <Step title="Exclusive lock acquired">
+    The server acquires an exclusive lock (`LOCK_EX`) on a `.lock` file
+  </Step>
+
+  <Step title="Atomic write">
+    Content is written to a temporary file, synced with `fsync()`, then atomically moved to replace the original file using `os.replace()`
+  </Step>
+
+  <Step title="Lock released">
+    The exclusive lock is released, allowing other operations
+  </Step>
+</Steps>
+
+This approach prevents corruption from concurrent writes and ensures data durability.
+
+<Tip>
+  Lock files are created at `<filename>.md.lock` in the same directory as your markdown file. They're automatically cleaned up when the server stops.
+</Tip>
+
+## External File Changes
+
+Markdown-OS watches your file for external modifications using the `watchdog` library:
+
+```python
+# The server monitors the parent directory for changes
+observer.schedule(
+    event_handler,
+    path=str(file_handler.filepath.parent),
+    recursive=False,
+)
+```
+
+When an external change is detected:
+
+1. **WebSocket notification** - The server sends a real-time update to your browser
+2. **Conflict detection** - If you have unsaved changes, you'll see a conflict resolution dialog with three options:
+   - **Save My Changes** - Overwrite the external changes
+   - **Discard My Changes** - Load the external version
+   - **Cancel** - Keep editing without resolving
+
+<Note>
+  The watcher throttles events to maximum one notification per 0.2 seconds and ignores events within 0.5 seconds of internal saves to prevent self-triggered reloads.
+</Note>
+
+## Image Storage
+
+Images uploaded or pasted in single file mode are stored in an `images/` directory adjacent to your markdown file:
+
+```
+my-notes/
+├── notes.md
+└── images/
+    ├── diagram-20260228-143052-123456.png
+    └── screenshot-20260228-143108-789012.jpg
+```
+
+Image references in markdown are relative:
+
+```markdown
+![Diagram](images/diagram-20260228-143052-123456.png)
+```
+
+See the [Images guide](/guides/images) for complete upload documentation.
+
+## Example Workflow
+
+Generate a feature showcase file and open it immediately:
+
+```bash
+# Generate example.md with showcase content
+markdown-os example
+
+# Generate and open in one command
+markdown-os example --open
+
+# Generate to a custom location
+markdown-os example ~/Documents/showcase.md --open
+
+# Force overwrite existing file
+markdown-os example --force
+```
+
+The example file demonstrates:
+- Text formatting (bold, italic, strikethrough, code)
+- Headings and table of contents
+- Lists (ordered, unordered, nested)
+- Code blocks with syntax highlighting
+- Mermaid diagrams
+- KaTeX math equations
+- Tables and blockquotes
+
+## Metadata API
+
+The server provides file metadata at `/api/content`:
+
+```json
+{
+  "content": "# My Notes\n\nContent here...",
+  "metadata": {
+    "path": "/home/user/notes.md",
+    "size_bytes": 1234,
+    "modified_at": 1709136652.123,
+    "created_at": 1709136000.456
+  }
+}
+```
+
+This metadata is used by the editor to track file state and detect conflicts.
+
+## Keyboard Shortcuts
+
+Single file mode supports all standard editor shortcuts:
+
+- `Cmd/Ctrl + B` - Bold
+- `Cmd/Ctrl + I` - Italic  
+- `Cmd/Ctrl + K` - Insert link
+- `Cmd/Ctrl + Z` - Undo
+- `Cmd/Ctrl + Shift + Z` - Redo
+- `Cmd/Ctrl + S` - Manual save (auto-save handles this automatically)
+
+See the [Editor Features guide](/guides/editor-features) for the complete list.

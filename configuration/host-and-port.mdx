@@ -1,0 +1,184 @@
+---
+title: Host and Port Configuration
+description: Configure network binding options for Markdown-OS server
+---
+
+## Overview
+
+Markdown-OS runs a local web server to provide the editor interface. You can customize the host interface and port number using command-line options.
+
+## Basic Usage
+
+<Steps>
+  <Step title="Default Configuration">
+    By default, Markdown-OS binds to `127.0.0.1` (localhost) on port `8000`:
+    
+    ```bash
+    uv run markdown-os open ./notes.md
+    # Opens at http://127.0.0.1:8000
+    ```
+  </Step>
+
+  <Step title="Custom Port">
+    Specify a different port with the `--port` option:
+    
+    ```bash
+    uv run markdown-os open ./docs/ --port 9000
+    # Opens at http://127.0.0.1:9000
+    ```
+  </Step>
+
+  <Step title="Custom Host">
+    Change the host interface with the `--host` option:
+    
+    ```bash
+    uv run markdown-os open ./notes.md --host 0.0.0.0 --port 8000
+    # Opens at http://0.0.0.0:8000
+    ```
+  </Step>
+</Steps>
+
+## Host Options
+
+### Localhost (Default)
+
+```bash
+uv run markdown-os open <path> --host 127.0.0.1
+```
+
+Binds to the loopback interface, making the server accessible only from your local machine. This is the **recommended and secure default** for local development.
+
+### Network Binding
+
+```bash
+uv run markdown-os open <path> --host 0.0.0.0
+```
+
+Binds to all network interfaces, making the server accessible from other devices on your network.
+
+<Warning>
+  Binding to `0.0.0.0` or any non-loopback address exposes your files to the network **without authentication**. Only use this in trusted networks or when you specifically need remote access (e.g., cloud VMs, development servers).
+</Warning>
+
+When you use a non-loopback address, Markdown-OS displays a security warning:
+
+```
+WARNING: Binding to non-loopback address exposes your files 
+to the network without authentication.
+```
+
+## Port Configuration
+
+### Auto-Increment Behavior
+
+The `--port` option specifies the **preferred starting port**. If that port is already in use, Markdown-OS automatically increments to find the next available port.
+
+```bash
+uv run markdown-os open ./notes.md --port 8000
+```
+
+**Port Selection Logic:**
+1. Tests if port 8000 is available
+2. If occupied, tries 8001, 8002, 8003...
+3. Continues up to port 65535
+4. Displays the actual port in the console output
+
+<Note>
+  Always check the console output to see which port was actually selected:
+  
+  ```
+  Opening file /home/user/notes.md at http://127.0.0.1:8001
+  ```
+</Note>
+
+### Valid Port Range
+
+Ports must be between **1 and 65535**. Using an invalid port number will result in an error:
+
+```bash
+uv run markdown-os open ./notes.md --port 70000
+# Error: Start port must be between 1 and 65535.
+```
+
+### Port Availability Check
+
+Markdown-OS uses socket binding tests to determine port availability. The check:
+- Attempts to bind a TCP socket with `SO_REUSEADDR` option
+- Tests the specific host/port combination
+- Returns the first available port in the range
+
+## Cloud and Remote Development
+
+### Cloud VMs (Cursor Cloud, GitHub Codespaces, etc.)
+
+When running Markdown-OS in a cloud VM or remote development environment, you need to bind to `0.0.0.0` to allow browser access:
+
+```bash
+uv run markdown-os open <file-or-directory> --host 0.0.0.0 --port 8000
+```
+
+<Note>
+  The CLI attempts to auto-open a browser. In cloud VMs, you may see harmless dbus errors in the logs. The server will still work correctly - just manually navigate to the URL shown in the console output.
+</Note>
+
+### Port Forwarding
+
+If your cloud environment requires specific port forwarding rules, use the `--port` option to specify the forwarded port:
+
+```bash
+# If your environment forwards external port 3000 to internal port 8080
+uv run markdown-os open ./docs/ --host 0.0.0.0 --port 8080
+```
+
+## Common Patterns
+
+<Accordion title="Local development on default settings">
+  ```bash
+  uv run markdown-os open ./notes.md
+  # Equivalent to:
+  # uv run markdown-os open ./notes.md --host 127.0.0.1 --port 8000
+  ```
+</Accordion>
+
+<Accordion title="Running multiple instances simultaneously">
+  Use different ports for each instance:
+  
+  ```bash
+  # Terminal 1
+  uv run markdown-os open ./project-a/ --port 8000
+  
+  # Terminal 2
+  uv run markdown-os open ./project-b/ --port 8001
+  
+  # Terminal 3
+  uv run markdown-os open ./notes.md --port 8002
+  ```
+  
+  <Note>
+    If you don't specify different ports, auto-increment will handle it automatically, but explicit ports make it easier to remember which project is on which port.
+  </Note>
+</Accordion>
+
+<Accordion title="Cloud VM with specific port requirements">
+  ```bash
+  # Bind to all interfaces on port 8000
+  uv run markdown-os open ~/workspace/ --host 0.0.0.0 --port 8000
+  ```
+</Accordion>
+
+<Accordion title="Testing network access">
+  To test that your server is accessible:
+  
+  ```bash
+  # On the server machine
+  uv run markdown-os open ./notes.md --host 0.0.0.0 --port 8000
+  
+  # From another machine on the same network
+  # Open browser to: http://<server-ip>:8000
+  ```
+</Accordion>
+
+## See Also
+
+- [Troubleshooting](/configuration/troubleshooting) - Common port and network issues
+- [Quick Start](/quickstart) - Basic Markdown-OS usage

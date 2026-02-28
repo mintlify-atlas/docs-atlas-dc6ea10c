@@ -1,0 +1,214 @@
+---
+title: open
+description: Start a local web editor for markdown files or directories
+---
+
+The `open` command starts a FastAPI/Uvicorn web server that provides a browser-based markdown editor.
+
+## Usage
+
+```bash
+markdown-os open [PATH] [OPTIONS]
+```
+
+## Arguments
+
+<ParamField path="PATH" type="Path" default="current directory">
+  Path to a markdown file or directory containing markdown files.
+  
+  - **File mode**: Opens a single `.md` or `.markdown` file
+  - **Folder mode**: Opens a workspace with all markdown files in the directory tree
+  
+  The path is validated and must:
+  - Exist on the filesystem
+  - Be a readable file or directory
+  - For files: have `.md` or `.markdown` extension
+  - For directories: contain at least one markdown file (searched recursively)
+</ParamField>
+
+## Options
+
+<ParamField path="--host" type="str" default="127.0.0.1">
+  Host interface to bind the web server to.
+  
+  - `127.0.0.1` (default) - localhost only
+  - `0.0.0.0` - all network interfaces (required for cloud VMs)
+  - `localhost` - same as 127.0.0.1
+  
+  **Source:** `cli.py:219-225`
+</ParamField>
+
+<ParamField path="--port" type="int" default="8000">
+  Preferred starting port for the web server.
+  
+  If the specified port is occupied, the CLI automatically increments to find the next available port in the range 8000-65535.
+  
+  **Source:** `cli.py:226-232`
+</ParamField>
+
+<Warning>
+  When binding to a non-loopback address (not `127.0.0.1` or `localhost`), the CLI displays a warning:
+  
+  ```
+  WARNING: Binding to non-loopback address exposes your files to the network without authentication.
+  ```
+  
+  The server has **no authentication layer**. Only use `--host 0.0.0.0` in trusted environments.
+</Warning>
+
+## Examples
+
+<CodeGroup>
+
+```bash Single File
+markdown-os open ./notes.md
+# Opens file at http://127.0.0.1:8000
+```
+
+```bash Directory Workspace
+markdown-os open ./my-docs
+# Opens folder mode with file tree navigation
+```
+
+```bash Custom Port
+markdown-os open ./README.md --port 3000
+# Starts server on port 3000 (or next available)
+```
+
+```bash Cloud VM (Cursor Cloud, Codespaces, etc.)
+markdown-os open ./notes --host 0.0.0.0 --port 8000
+# Exposes server to network for browser access
+```
+
+```bash Home Directory File
+markdown-os open ~/Documents/notes.md
+# Paths support tilde expansion
+```
+
+</CodeGroup>
+
+## Terminal Output
+
+When the server starts successfully, you'll see:
+
+```bash
+Opening file /home/user/notes.md at http://127.0.0.1:8000
+INFO:     Started server process [12345]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+```
+
+The browser opens automatically (0.4 second delay). In cloud environments, the auto-open may fail silently — just use the URL from the output.
+
+## Behavior Details
+
+### Path Validation
+
+The command validates paths through these checks:
+
+1. **Expansion**: `~` is expanded to home directory
+2. **Resolution**: Relative paths are resolved to absolute paths
+3. **Existence**: Path must exist on filesystem
+4. **Type detection**:
+   - If file: validates `.md` or `.markdown` extension
+   - If directory: recursively scans for at least one markdown file
+
+**Source references:**
+- File validation: `cli.py:41-59`
+- Directory validation: `cli.py:79-99`
+- Unified validation: `cli.py:102-122`
+
+### Port Selection
+
+Port selection follows this algorithm:
+
+1. Try to bind to the requested `--port` (default 8000)
+2. If occupied, increment by 1 and try again
+3. Continue until an available port is found (up to 65535)
+4. Fail if no ports are available in range
+
+**Source:** `cli.py:146-165`
+
+### Browser Launch
+
+The browser opens in a daemon thread with:
+- 0.4 second delay (allows server startup)
+- `new=2` parameter (opens in new tab)
+- `autoraise=True` (brings window to front)
+
+**Source:** `cli.py:168-181`
+
+### Server Modes
+
+<CodeGroup>
+
+```python File Mode
+# Single file editing
+handler = FileHandler(resolved_path)
+application = create_app(handler, mode="file")
+```
+
+```python Folder Mode  
+# Directory workspace with file tree
+handler = DirectoryHandler(resolved_path)
+application = create_app(handler, mode="folder")
+```
+
+</CodeGroup>
+
+**Source:** `cli.py:261-266`
+
+## Error Messages
+
+<CodeGroup>
+
+```bash File Not Found
+$ markdown-os open missing.md
+Error: File does not exist: /home/user/missing.md
+```
+
+```bash Invalid Extension
+$ markdown-os open document.txt
+Error: Only markdown files are supported (.md, .markdown).
+```
+
+```bash Not a File
+$ markdown-os open /some/directory
+Error: Path is not a file: /some/directory
+# (This assumes you opened a directory that has no markdown files)
+```
+
+```bash Directory Without Markdown
+$ markdown-os open ./empty-dir
+Error: Directory contains no markdown files (.md, .markdown): /home/user/empty-dir
+```
+
+```bash Invalid Port Range
+$ markdown-os open notes.md --port 99999
+Error: Start port must be between 1 and 65535.
+```
+
+</CodeGroup>
+
+## Stopping the Server
+
+Press `CTRL+C` in the terminal to shut down:
+
+```bash
+^CINFO:     Shutting down
+INFO:     Finished server process [12345]
+```
+
+## Technical Details
+
+- **Framework**: FastAPI with Uvicorn ASGI server
+- **Static files**: Frontend served from `markdown_os/static/`
+- **File locking**: Uses `portalocker` for safe concurrent writes
+- **File watching**: `watchdog` library monitors filesystem changes
+- **WebSockets**: Live updates via `websockets` library
+- **Async I/O**: All file operations are async-compatible
+
+<Note>
+  The `open` command is also the **default command** when `markdown-os` is invoked without a subcommand. Running `markdown-os` with no arguments opens the current working directory.
+</Note>

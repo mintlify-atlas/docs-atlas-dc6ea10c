@@ -1,0 +1,243 @@
+---
+title: WYSIWYG Editing
+description: Learn how Markdown-OS's contenteditable-based WYSIWYG editor provides real-time markdown rendering with inline shortcuts and block editing
+---
+
+# WYSIWYG Editing
+
+Markdown-OS features a powerful WYSIWYG editor that allows you to edit markdown content directly in a rendered view. The editor uses `contenteditable` with Marked.js for rendering and Turndown.js for serialization, providing a seamless editing experience.
+
+## How It Works
+
+The WYSIWYG editor uses a sophisticated content pipeline that transforms markdown to HTML and back:
+
+<Steps>
+  <Step title="Load">
+    Server markdown → `marked.parse()` → rendered HTML in contenteditable
+  </Step>
+  <Step title="Edit">
+    User edits content directly in the rendered view with visual feedback
+  </Step>
+  <Step title="Save">
+    contenteditable HTML → `TurndownService` → markdown string → `POST /api/save`
+  </Step>
+</Steps>
+
+<Info>
+The editor is implemented in `wysiwyg.js` (~2000 lines) and provides a complete markdown editing experience without requiring users to learn markdown syntax.
+</Info>
+
+## Inline Shortcuts
+
+The editor supports real-time inline markdown shortcuts that transform as you type:
+
+### Text Formatting
+
+- `**text**` → **Bold text** (detected on space after closing `**`)
+- `*text*` → *Italic text*
+- `~~text~~` → ~~Strikethrough text~~
+- `` `code` `` → `inline code`
+
+### Headings
+
+- `# ` at line start → Heading 1
+- `## ` at line start → Heading 2
+- `### ` at line start → Heading 3
+
+### Lists
+
+- `- ` at line start → Bullet list item
+- `1. ` at line start → Numbered list item
+- `[ ] ` at line start → Task list checkbox (unchecked)
+- `[x] ` at line start → Task list checkbox (checked)
+
+### Other Elements
+
+- `> ` at line start → Blockquote
+- `---` on its own line → Horizontal rule
+
+<Tip>
+Inline shortcuts are detected on `input` and `keydown` events, transforming text as you type for instant visual feedback.
+</Tip>
+
+## Formatting Toolbar
+
+The floating toolbar (`wysiwyg-toolbar.js`) provides quick access to formatting options:
+
+### Basic Formatting
+- Bold, Italic, Strikethrough, Code
+- Heading selector (H1, H2, H3)
+- Link insertion and editing
+
+### Lists and Structure
+- Bullet lists and numbered lists
+- Task lists with checkboxes
+- Blockquotes
+
+### Insert Menu
+- Tables (2-column template)
+- Images (from URL or file upload)
+- Horizontal rules
+- Mermaid diagrams
+- Math equations (KaTeX)
+- Code blocks
+
+## Block Editing
+
+Special content blocks use a click-to-edit modal system for precise control:
+
+### Editable Blocks
+
+<Accordion title="Code Blocks">
+  Click the edit icon to open a modal editor where you can modify the code content and change the language. The raw source is stored in `data-original-content` attributes.
+  
+  ```javascript:wysiwyg.js:1418-1467
+  function openBlockEditor(type, target) {
+    // Opens modal for code, mermaid, or math blocks
+    // Preserves scroll position and focus
+  }
+  ```
+</Accordion>
+
+<Accordion title="Mermaid Diagrams">
+  Click edit to modify the diagram source. The editor re-renders the diagram after changes with proper error handling.
+</Accordion>
+
+<Accordion title="Math Equations">
+  Both inline (`$...$`) and display (`$$...$$`) equations can be edited by clicking the edit icon. KaTeX renders the LaTeX in real-time.
+</Accordion>
+
+## Interactive Links
+
+Links in the editor have special behavior:
+
+- **Click**: Opens the edit dialog to change URL or text
+- **Cmd/Ctrl+Click**: Opens the link in a new tab
+- **Empty URL**: Converts the link back to plain text
+
+```javascript:wysiwyg.js:774-813
+async function editLinkElement(linkElement) {
+  const result = await window.markdownDialogs?.promptPair?.({
+    title: "Edit link",
+    first: { label: "URL", value: currentHref },
+    second: { label: "Text", value: currentLabel },
+  });
+  // Updates link or converts to text if URL is empty
+}
+```
+
+## Task Lists
+
+Task list checkboxes are fully interactive:
+
+- Click checkboxes to toggle completion state
+- Visual styling for checked items
+- Checkboxes marked with `contenteditable="false"` to prevent text editing
+
+```javascript:wysiwyg.js:815-832
+function makeTaskListsInteractive() {
+  state.root.querySelectorAll('li > input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.removeAttribute("disabled");
+    checkbox.setAttribute("contenteditable", "false");
+    setTaskCheckboxClasses(checkbox);
+  });
+}
+```
+
+## Content Sanitization
+
+All rendered HTML is sanitized using DOMPurify for security:
+
+```javascript:wysiwyg.js:1000-1017
+async function setMarkdown(markdown, options = {}) {
+  const rawHtml = window.marked.parse(markdown || "");
+  state.root.innerHTML = window.DOMPurify
+    ? window.DOMPurify.sanitize(rawHtml, { ADD_ATTR: ["contenteditable"] })
+    : rawHtml;
+  await decorateDocument();
+}
+```
+
+## Undo/Redo
+
+The editor supports standard undo/redo operations:
+
+- **Cmd/Ctrl+Z**: Undo last change
+- **Cmd/Ctrl+Shift+Z**: Redo last undone change
+
+Undo history is managed by the browser's built-in `contenteditable` undo stack, triggered via `document.execCommand()`.
+
+<Warning>
+The editor uses `contenteditable` which has browser-specific quirks. Testing across browsers is recommended for production use.
+</Warning>
+
+## Implementation Details
+
+### Core State Management
+
+The editor maintains state for:
+- Root element and container references
+- Change listeners for auto-save integration
+- Input suppression during programmatic updates
+- Mermaid theme synchronization
+- Block edit modal state
+
+```javascript:wysiwyg.js:12-26
+const state = {
+  root: null,
+  container: null,
+  changeListeners: new Set(),
+  suppressInput: false,
+  mermaidInitialized: false,
+  mermaidTheme: null,
+  fullscreenPanZoom: null,
+  blockEditTarget: null,
+  blockEditType: null,
+};
+```
+
+### Change Events
+
+The editor emits change events for integration with auto-save:
+
+```javascript:wysiwyg.js:70-89
+function emitChange() {
+  state.changeListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (error) {
+      console.error("WYSIWYG change listener failed.", error);
+    }
+  });
+}
+
+function onChange(listener) {
+  state.changeListeners.add(listener);
+  return () => state.changeListeners.delete(listener);
+}
+```
+
+### Document Decoration
+
+After rendering markdown to HTML, the document is decorated with interactive features:
+
+```javascript:wysiwyg.js:845-856
+async function decorateDocument() {
+  addHeadingIds(state.root);
+  decorateCodeBlocks();
+  renderMathEquations();
+  await renderMermaidDiagrams();
+  makeTaskListsInteractive();
+  decorateLinks();
+}
+```
+
+## Best Practices
+
+<Note>
+**Performance**: The editor handles documents with hundreds of elements efficiently, but very large documents (>10,000 elements) may experience slower rendering.
+</Note>
+
+<Tip>
+**Accessibility**: The editor maintains keyboard navigation and screen reader compatibility through proper ARIA attributes and semantic HTML.
+</Tip>

@@ -1,0 +1,191 @@
+---
+title: Introduction
+description: Developer-focused markdown editor that runs as a local web server with live preview, Mermaid diagrams, and auto-save.
+---
+
+# Welcome to Markdown-OS
+
+Markdown-OS is a developer-focused markdown editor served from a local CLI. Edit in your browser with real-time preview, Mermaid diagrams, syntax highlighting, KaTeX math equations, and auto-save.
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Get started with pip or uv in seconds
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Open your first file or workspace
+  </Card>
+  <Card title="GitHub Repository" icon="github" href="https://github.com/elena-cabrera/markdown-os">
+    View source code and contribute
+  </Card>
+  <Card title="PyPI Package" icon="python" href="https://pypi.org/project/markdown-os/">
+    Check latest release and stats
+  </Card>
+</CardGroup>
+
+## Why Markdown-OS?
+
+Markdown-OS bridges the gap between simple text editors and heavyweight IDEs by providing a focused, browser-based markdown editing experience with professional features:
+
+<CardGroup cols={3}>
+  <Card title="Live Preview" icon="eye">
+    See your rendered markdown as you type with instant updates
+  </Card>
+  <Card title="Mermaid Diagrams" icon="diagram-project">
+    Create flowcharts, sequence diagrams, and state diagrams inline
+  </Card>
+  <Card title="Auto-Save" icon="floppy-disk">
+    Never lose work with debounced auto-save and conflict detection
+  </Card>
+  <Card title="Syntax Highlighting" icon="code">
+    Beautiful code blocks with language detection and copy buttons
+  </Card>
+  <Card title="Math Equations" icon="square-root-variable">
+    Render LaTeX equations with KaTeX for technical documentation
+  </Card>
+  <Card title="Workspace Mode" icon="folder-tree">
+    Manage multiple files with tabs, file tree, and smart navigation
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### Single File Mode
+
+Open a single markdown file with a clean, distraction-free interface:
+
+```bash
+markdown-os open ./notes.md
+```
+
+Perfect for quick edits, personal notes, or focused writing sessions.
+
+### Directory Workspace Mode
+
+Work with entire documentation projects using the folder mode:
+
+```bash
+markdown-os open ./my-docs
+```
+
+Features include:
+- File tree sidebar with search
+- Multi-file tabs (up to 15)
+- Smart tab naming for duplicate filenames
+- URL-based file routing
+- Cached content and scroll positions per tab
+
+<Note>
+  The app automatically detects whether you're opening a file or directory and switches modes accordingly.
+</Note>
+
+### WYSIWYG Editing
+
+Edit markdown in a rich WYSIWYG editor powered by `contenteditable` with:
+
+- **Inline shortcuts**: Type `**text**` and it becomes bold automatically
+- **Click-to-edit blocks**: Code blocks, Mermaid diagrams, and math equations
+- **Smart formatting**: Heading shortcuts with `#`, list auto-continuation
+- **Image paste/drop**: Ctrl+V or drag images directly into the editor
+- **Undo/redo history**: Full editing history with keyboard shortcuts
+
+### Developer-Friendly Architecture
+
+<CardGroup cols={2}>
+  <Card title="Backend" icon="server">
+    Python 3.11+ with FastAPI, Typer CLI, Uvicorn ASGI server, and Watchdog file monitoring
+  </Card>
+  <Card title="Frontend" icon="browser">
+    Vanilla HTML/CSS/JavaScript with Marked.js, Turndown.js, Mermaid.js, KaTeX, and highlight.js
+  </Card>
+</CardGroup>
+
+### File Safety
+
+Robust file handling ensures your content is always safe:
+
+- **POSIX file locks**: Shared locks for reads, exclusive locks for writes
+- **Atomic writes**: Content written to temp file → fsync → atomic replace
+- **Conflict detection**: Warns when external changes conflict with unsaved edits
+- **WebSocket sync**: Real-time notifications for external file changes
+
+<Warning>
+  File locks use POSIX `fcntl` and are currently optimized for Linux/macOS. Windows compatibility may require adaptation.
+</Warning>
+
+## Use Cases
+
+### Personal Knowledge Base
+
+Build a local-first knowledge base with:
+- Quick capture of ideas and notes
+- Mermaid diagrams for system design
+- Code snippets with syntax highlighting
+- Math equations for technical notes
+
+### Documentation Projects
+
+Author technical documentation with:
+- Multi-file workspace mode
+- Live preview for instant feedback
+- Table of contents generation
+- Image upload and management
+
+### Meeting Notes
+
+Capture structured meeting notes with:
+- Task lists with checkboxes
+- Tables for action items
+- Inline links to related files
+- Auto-save to never lose content
+
+### Technical Writing
+
+Write blog posts, tutorials, and guides with:
+- Rich formatting options
+- Code blocks with copy buttons
+- Mermaid diagrams for explanations
+- Export-ready markdown
+
+## What Makes It Different?
+
+<Steps>
+  <Step title="Local-First">
+    No cloud dependencies, no accounts, no data leaving your machine. Your files stay on your filesystem.
+  </Step>
+  
+  <Step title="Browser-Based">
+    Runs in your browser but served from localhost. Get the benefits of web rendering without giving up control.
+  </Step>
+  
+  <Step title="Developer-Focused">
+    Built by developers, for developers. Syntax highlighting, Mermaid, KaTeX, and CLI-first design.
+  </Step>
+  
+  <Step title="Zero Configuration">
+    Install and run. No config files, no setup wizards, no dependencies beyond Python.
+  </Step>
+</Steps>
+
+## Technical Specifications
+
+| Feature | Details |
+| --- | --- |
+| **Python Version** | 3.11+ (tested on 3.11, 3.12, 3.13) |
+| **Package Manager** | pip or uv |
+| **License** | Apache-2.0 |
+| **Status** | Beta (Development Status 4) |
+| **Default Port** | 8000 (auto-increments if occupied) |
+| **Max Image Size** | 10MB |
+| **Supported Images** | PNG, JPG, GIF, WEBP, SVG, BMP, ICO |
+| **Max Tabs** | 15 files (workspace mode) |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Install Now" icon="download" href="/installation">
+    Get Markdown-OS installed in under a minute
+  </Card>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Learn the essentials and start editing
+  </Card>
+</CardGroup>

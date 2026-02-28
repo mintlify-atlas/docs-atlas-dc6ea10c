@@ -1,0 +1,389 @@
+---
+title: Math Equations
+description: Render beautiful mathematical equations using KaTeX with support for inline and display modes
+---
+
+# Math Equations
+
+Markdown-OS supports mathematical equations using KaTeX, a fast math typesetting library. You can write equations in LaTeX syntax with both inline and display modes.
+
+## Inline Math
+
+Inline equations are wrapped in single dollar signs: `$...$`
+
+**Example:**
+```markdown
+The quadratic formula is $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$ for polynomials.
+```
+
+**Renders as:**
+The quadratic formula is $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$ for polynomials.
+
+<Info>
+Inline math flows with surrounding text and uses KaTeX's `displayMode: false` rendering.
+</Info>
+
+## Display Math
+
+Display equations are wrapped in double dollar signs: `$$...$$`
+
+**Example:**
+```markdown
+$$
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+$$
+```
+
+**Renders as a centered block equation with proper spacing.**
+
+<Tip>
+Display math is rendered in a dedicated block with edit and copy buttons for easy interaction.
+</Tip>
+
+## KaTeX Integration
+
+Equations are rendered using KaTeX with custom Marked.js extensions:
+
+### Inline Math Extension
+
+```javascript:wysiwyg.js:142-162
+const mathInline = {
+  name: "mathInline",
+  level: "inline",
+  start(src) {
+    return src.match(/\$/)?.index;
+  },
+  tokenizer(src) {
+    const match = src.match(/^\$([^\$\n]+?)\$(?!\$)/);
+    if (match) {
+      return {
+        type: "mathInline",
+        raw: match[0],
+        text: match[1].trim(),
+      };
+    }
+  },
+  renderer(token) {
+    const escaped = escapeHtmlAttribute(token.text);
+    return `<span class="math-inline" contenteditable="false" data-math-source="${escaped}">${escaped}</span>`;
+  },
+};
+```
+
+### Display Math Extension
+
+```javascript:wysiwyg.js:120-140
+const mathBlock = {
+  name: "mathBlock",
+  level: "block",
+  start(src) {
+    return src.match(/\$\$/)?.index;
+  },
+  tokenizer(src) {
+    const match = src.match(/^\$\$[ \t]*\n?([\s\S]+?)\n?\$\$(?:\n|$)/);
+    if (match) {
+      return {
+        type: "mathBlock",
+        raw: match[0],
+        text: match[1].trim(),
+      };
+    }
+  },
+  renderer(token) {
+    const escaped = escapeHtmlAttribute(token.text);
+    return `<div class="math-display" contenteditable="false" data-math-source="${escaped}">${escaped}</div>\n`;
+  },
+};
+```
+
+<Note>
+Both extensions store the original LaTeX source in `data-math-source` attributes, which is used for editing and re-rendering.
+</Note>
+
+## Rendering Process
+
+Math equations are rendered during document decoration:
+
+<Steps>
+  <Step title="Parse Markdown">
+    Marked.js detects `$...$` and `$$...$$` patterns using custom extensions
+  </Step>
+  <Step title="Generate HTML">
+    Extensions create `.math-inline` or `.math-display` elements with source stored in data attributes
+  </Step>
+  <Step title="Render with KaTeX">
+    `renderMathEquations()` finds math elements and calls `katex.render()` on each
+  </Step>
+  <Step title="Add Controls">
+    Display equations get edit and copy buttons for interaction
+  </Step>
+</Steps>
+
+### Render Implementation
+
+```javascript:wysiwyg.js:377-446
+function renderMathEquations() {
+  if (!window.katex || !state.root) {
+    return;
+  }
+  
+  // Inline math
+  state.root.querySelectorAll(".math-inline").forEach((element) => {
+    const source = element.getAttribute("data-math-source") || element.textContent;
+    try {
+      window.katex.render(source, element, {
+        throwOnError: false,
+        displayMode: false,
+        output: "htmlAndMathml",
+      });
+    } catch (error) {
+      renderMathError(element, source, false);
+    }
+  });
+  
+  // Display math
+  state.root.querySelectorAll(".math-display").forEach((element) => {
+    const source = element.getAttribute("data-math-source") || element.textContent;
+    try {
+      window.katex.render(source, element, {
+        throwOnError: false,
+        displayMode: true,
+        output: "htmlAndMathml",
+      });
+      
+      // Add edit and copy buttons
+      const actions = document.createElement("div");
+      actions.className = "math-block-actions";
+      // ... button setup ...
+      element.appendChild(actions);
+    } catch (error) {
+      renderMathError(element, source, true);
+    }
+  });
+}
+```
+
+## Interactive Features
+
+### Copy LaTeX
+
+Display equations have a copy button that copies the raw LaTeX source:
+
+```javascript:wysiwyg.js:415-427
+const copyButton = createActionButton("copy", "Copy LaTeX");
+copyButton.addEventListener("click", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  try {
+    const latestSource = element.getAttribute("data-math-source") || "";
+    await copyToClipboard(latestSource);
+    flashCopied(copyButton);
+  } catch (error) {
+    console.error("Failed to copy LaTeX content.", error);
+  }
+});
+```
+
+<Info>
+The copy button temporarily shows a checkmark after successful copy, then reverts to the copy icon after 1.5 seconds.
+</Info>
+
+### Edit Equations
+
+Click the edit button to modify an equation:
+
+```javascript:wysiwyg.js:429-436
+const editButton = createActionButton("edit", "Edit equation");
+editButton.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  openBlockEditor("math-display", element);
+});
+```
+
+<Accordion title="Edit Modal">
+  The editor opens a modal with:
+  - Title: "Edit display equation" or "Edit inline equation"
+  - Textarea with current LaTeX source
+  - Save and Cancel buttons
+  - Keyboard shortcuts (Enter saves, Escape cancels)
+</Accordion>
+
+<Accordion title="Saving Changes">
+  After editing:
+  1. New source is stored in `data-math-source` attribute
+  2. Element text content is updated
+  3. `renderMathEquations()` is called to re-render
+  4. Change event is emitted for auto-save
+</Accordion>
+
+## Error Handling
+
+Invalid LaTeX syntax is handled gracefully:
+
+### Inline Math Errors
+
+```javascript:wysiwyg.js:363-375
+function renderMathError(element, source, displayMode) {
+  if (displayMode) {
+    element.innerHTML = "";
+    const errorBlock = document.createElement("div");
+    errorBlock.className = "math-error-block";
+    errorBlock.textContent = `Invalid LaTeX:\n${source}`;
+    element.appendChild(errorBlock);
+    return;
+  }
+  
+  element.classList.add("math-error");
+  element.title = `Invalid LaTeX: ${source}`;
+}
+```
+
+<Warning>
+Inline math errors add a visual indicator and tooltip. Display math errors show the error message in a dedicated block.
+</Warning>
+
+## KaTeX Configuration
+
+KaTeX is configured for safety and compatibility:
+
+```javascript
+window.katex.render(source, element, {
+  throwOnError: false,      // Show errors instead of throwing
+  displayMode: true,        // Block vs inline rendering
+  output: "htmlAndMathml",  // Generate both HTML and MathML
+});
+```
+
+### Configuration Options
+
+- `throwOnError: false` - Renders error messages instead of throwing exceptions
+- `displayMode` - Controls centered block layout vs inline flow
+- `output: "htmlAndMathml"` - Generates accessible MathML alongside HTML
+
+<Tip>
+MathML output improves accessibility for screen readers and allows better copying of equations.
+</Tip>
+
+## Supported LaTeX Commands
+
+KaTeX supports most standard LaTeX math commands:
+
+### Common Commands
+
+- **Greek letters**: `\alpha`, `\beta`, `\gamma`, `\Delta`, `\Omega`
+- **Operators**: `\sum`, `\int`, `\prod`, `\lim`, `\frac`
+- **Relations**: `\leq`, `\geq`, `\neq`, `\approx`, `\equiv`
+- **Arrows**: `\rightarrow`, `\Rightarrow`, `\leftrightarrow`
+- **Sets**: `\in`, `\notin`, `\subset`, `\cup`, `\cap`
+- **Logic**: `\land`, `\lor`, `\neg`, `\forall`, `\exists`
+
+### Advanced Features
+
+- **Matrices**: `\begin{matrix}...\end{matrix}`
+- **Cases**: `\begin{cases}...\end{cases}`
+- **Aligned equations**: `\begin{aligned}...\end{aligned}`
+- **Colors**: `\textcolor{red}{text}`, `\colorbox{yellow}{text}`
+- **Sizing**: `\large`, `\Large`, `\huge`, `\tiny`
+
+<Info>
+For a complete list of supported commands, see the [KaTeX documentation](https://katex.org/docs/supported.html).
+</Info>
+
+## Example Equations
+
+### Calculus
+```markdown
+$$
+\frac{d}{dx}\left(\int_{a}^{x} f(t)\,dt\right) = f(x)
+$$
+```
+
+### Linear Algebra
+```markdown
+$$
+\begin{bmatrix}
+a & b \\
+c & d
+\end{bmatrix}
+\begin{bmatrix}
+x \\
+y
+\end{bmatrix}
+=
+\begin{bmatrix}
+ax + by \\
+cx + dy
+\end{bmatrix}
+$$
+```
+
+### Statistics
+```markdown
+$$
+\mathbb{E}[X] = \sum_{i=1}^{n} x_i \cdot P(X = x_i)
+$$
+```
+
+### Physics
+```markdown
+$$
+E = mc^2 \quad \text{and} \quad F = ma
+$$
+```
+
+## Markdown Serialization
+
+When saving, math elements are converted back to markdown:
+
+```javascript:wysiwyg.js:874-900
+turndownService.addRule("mathDisplay", {
+  filter(node) {
+    return (
+      node.nodeType === Node.ELEMENT_NODE &&
+      node.nodeName === "DIV" &&
+      node.classList.contains("math-display")
+    );
+  },
+  replacement(_content, node) {
+    const source = node.getAttribute("data-math-source") || "";
+    return `\n\n$$\n${source}\n$$\n\n`;
+  },
+});
+
+turndownService.addRule("mathInline", {
+  filter(node) {
+    return (
+      node.nodeType === Node.ELEMENT_NODE &&
+      node.nodeName === "SPAN" &&
+      node.classList.contains("math-inline")
+    );
+  },
+  replacement(_content, node) {
+    const source = node.getAttribute("data-math-source") || "";
+    return `$${source}$`;
+  },
+});
+```
+
+<Note>
+The original LaTeX source is preserved in data attributes, ensuring perfect round-trip serialization.
+</Note>
+
+## Best Practices
+
+<Tip>
+**Use display mode for complex equations**: Long equations are easier to read when centered in display mode.
+</Tip>
+
+<Tip>
+**Test equations before saving**: The live preview shows how your equation will render, but you can also edit and preview multiple times before saving.
+</Tip>
+
+<Warning>
+**Escape special characters**: Use `\{`, `\}`, `\_` to render literal braces and underscores in LaTeX.
+</Warning>
+
+<Note>
+**Performance**: KaTeX is much faster than MathJax, rendering equations instantly even with many equations on a page.
+</Note>

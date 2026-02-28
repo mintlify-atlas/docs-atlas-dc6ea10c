@@ -1,0 +1,302 @@
+---
+title: FileHandler
+description: Safe markdown file I/O with POSIX file locks and atomic writes
+---
+
+The `FileHandler` class provides thread-safe, atomic file operations for markdown files using POSIX file locks (via `portalocker`). It implements shared locks for reads and exclusive locks for writes with atomic file replacement.
+
+## Class Definition
+
+```python
+from pathlib import Path
+from markdown_os.file_handler import FileHandler
+
+handler = FileHandler(filepath=Path("notes.md"))
+```
+
+## Constructor
+
+<ParamField path="filepath" type="Path" required>
+  Absolute or relative path to the markdown file. The path will be expanded and resolved automatically.
+</ParamField>
+
+### Example
+
+```python
+from pathlib import Path
+from markdown_os.file_handler import FileHandler
+
+# Create a handler for a markdown file
+handler = FileHandler(Path("~/Documents/notes.md"))
+
+# The filepath is normalized and resolved
+print(handler.filepath)  # /home/user/Documents/notes.md
+```
+
+## Properties
+
+### filepath
+
+Exposes the resolved markdown file path served by this handler.
+
+```python
+@property
+def filepath(self) -> Path
+```
+
+<ResponseField name="filepath" type="Path">
+  The resolved absolute path to the markdown file for read and write operations.
+</ResponseField>
+
+### Example
+
+```python
+handler = FileHandler(Path("notes.md"))
+print(handler.filepath)  # /absolute/path/to/notes.md
+print(handler.filepath.parent)  # /absolute/path/to
+```
+
+## Methods
+
+### read()
+
+Read markdown content from disk using a shared lock (LOCK_SH). Multiple readers can hold shared locks simultaneously.
+
+```python
+def read(self) -> str
+```
+
+<ResponseField name="content" type="str">
+  UTF-8 decoded markdown content currently stored on disk.
+</ResponseField>
+
+<Note>
+  This method acquires a shared lock, allowing multiple concurrent reads but blocking if an exclusive write lock is held.
+</Note>
+
+**Raises:**
+- `FileReadError` - If the file does not exist, is not valid UTF-8, or cannot be read
+
+### Example
+
+```python
+from markdown_os.file_handler import FileHandler, FileReadError
+from pathlib import Path
+
+try:
+    handler = FileHandler(Path("notes.md"))
+    content = handler.read()
+    print(f"Read {len(content)} characters")
+except FileReadError as e:
+    print(f"Failed to read: {e}")
+```
+
+### write()
+
+Persist markdown content atomically using an exclusive lock (LOCK_EX). Writes to a temporary file, syncs to disk, then atomically replaces the original.
+
+```python
+def write(self, content: str) -> bool
+```
+
+<ParamField path="content" type="str" required>
+  Full markdown document content to save. This will replace the entire file contents.
+</ParamField>
+
+<ResponseField name="success" type="bool">
+  Always returns `True` when content is written and moved into place successfully.
+</ResponseField>
+
+<Warning>
+  This method replaces the entire file content. The write is atomic - either all content is written or none is (no partial writes).
+</Warning>
+
+**Raises:**
+- `FileWriteError` - If the temporary file cannot be created, written to, or replaced
+
+**Implementation Details:**
+
+1. Acquires exclusive lock (blocks other readers and writers)
+2. Writes content to temporary file in same directory: `.{filename}.tmp`
+3. Calls `fsync()` to ensure data is on disk
+4. Atomically replaces original file with `os.replace()`
+5. Releases lock
+
+### Example
+
+```python
+from markdown_os.file_handler import FileHandler, FileWriteError
+from pathlib import Path
+
+try:
+    handler = FileHandler(Path("notes.md"))
+    success = handler.write("# My Notes\n\nContent here...")
+    print(f"Write successful: {success}")
+except FileWriteError as e:
+    print(f"Failed to write: {e}")
+```
+
+### get_metadata()
+
+Return current file metadata used by API responses.
+
+```python
+def get_metadata(self) -> dict[str, Any]
+```
+
+<ResponseField name="metadata" type="dict[str, Any]">
+  File metadata dictionary containing:
+  - `path` (str): Absolute file path as string
+  - `size_bytes` (int): File size in bytes
+  - `modified_at` (float): Last modification timestamp (Unix time)
+  - `created_at` (float): Creation timestamp (Unix time, platform-dependent)
+</ResponseField>
+
+**Raises:**
+- `FileReadError` - If the file does not exist or cannot be inspected
+
+### Example
+
+```python
+from markdown_os.file_handler import FileHandler
+from pathlib import Path
+import datetime
+
+handler = FileHandler(Path("notes.md"))
+metadata = handler.get_metadata()
+
+print(f"Path: {metadata['path']}")
+print(f"Size: {metadata['size_bytes']} bytes")
+print(f"Modified: {datetime.datetime.fromtimestamp(metadata['modified_at'])}")
+```
+
+**Sample Output:**
+
+```json
+{
+  "path": "/home/user/notes.md",
+  "size_bytes": 1234,
+  "modified_at": 1709251234.567,
+  "created_at": 1709240000.123
+}
+```
+
+### cleanup()
+
+Remove the lock file created by this handler instance. Safe to call multiple times.
+
+```python
+def cleanup(self) -> None
+```
+
+<Note>
+  This method has best-effort semantics and never raises exceptions. It's recommended to call this when done with a handler, typically in server shutdown hooks.
+</Note>
+
+**Lock File Location:** `{filename}.md.lock` in the same directory as the markdown file.
+
+### Example
+
+```python
+from markdown_os.file_handler import FileHandler
+from pathlib import Path
+
+handler = FileHandler(Path("notes.md"))
+try:
+    content = handler.read()
+    # ... do work ...
+finally:
+    handler.cleanup()  # Remove lock file
+```
+
+## Exceptions
+
+### FileReadError
+
+Raised when reading markdown content fails.
+
+```python
+from markdown_os.file_handler import FileReadError
+```
+
+Inherits from `RuntimeError`. Common scenarios:
+- File does not exist
+- File is not valid UTF-8 text
+- File cannot be read due to permissions or I/O errors
+
+### FileWriteError
+
+Raised when writing markdown content fails.
+
+```python
+from markdown_os.file_handler import FileWriteError
+```
+
+Inherits from `RuntimeError`. Common scenarios:
+- Failed to acquire exclusive lock
+- Failed to create or write temporary file
+- Failed to replace original file atomically
+
+## Complete Usage Example
+
+```python
+from pathlib import Path
+from markdown_os.file_handler import FileHandler, FileReadError, FileWriteError
+
+def update_markdown_file(filepath: Path, new_content: str) -> None:
+    """Safely read and update a markdown file."""
+    handler = FileHandler(filepath)
+    
+    try:
+        # Read existing content
+        old_content = handler.read()
+        print(f"Read {len(old_content)} characters")
+        
+        # Get file metadata
+        metadata = handler.get_metadata()
+        print(f"File size: {metadata['size_bytes']} bytes")
+        
+        # Write new content atomically
+        handler.write(new_content)
+        print("Content updated successfully")
+        
+    except FileReadError as e:
+        print(f"Read failed: {e}")
+    except FileWriteError as e:
+        print(f"Write failed: {e}")
+    finally:
+        # Clean up lock file
+        handler.cleanup()
+
+# Usage
+update_markdown_file(
+    Path("~/Documents/notes.md"),
+    "# Updated Notes\n\nNew content..."
+)
+```
+
+## Lock Behavior
+
+The `FileHandler` uses POSIX file locks via the `portalocker` library:
+
+| Operation | Lock Type | Behavior |
+|-----------|-----------|----------|
+| `read()` | Shared (LOCK_SH) | Multiple readers allowed, blocks if exclusive lock held |
+| `write()` | Exclusive (LOCK_EX) | Blocks all other readers and writers |
+
+**Lock File:** `{filename}.md.lock` in the same directory as the target file.
+
+<Warning>
+  Lock files are created automatically and should be cleaned up with `cleanup()`. In server mode, the `DirectoryHandler` calls `cleanup()` on all cached handlers during shutdown.
+</Warning>
+
+## Thread Safety
+
+The `FileHandler` is thread-safe for concurrent reads and writes:
+- Multiple threads can read simultaneously (shared locks)
+- Write operations are serialized (exclusive locks)
+- Atomic writes prevent partial file corruption
+
+## Source Reference
+
+See the complete implementation in `markdown_os/file_handler.py`.

@@ -1,0 +1,532 @@
+---
+title: Images
+description: Upload, manage, and embed images in your markdown files with drag-and-drop and paste support
+---
+
+## Overview
+
+Markdown-OS provides seamless image handling with drag-and-drop upload, clipboard paste, and automatic storage in a dedicated `images/` directory.
+
+## Uploading Images
+
+### Drag and Drop
+
+Drag image files directly onto the editor:
+
+<Steps>
+  <Step title="Drag an image file">
+    Drag a `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp`, or `.ico` file from your file manager onto the editor area.
+  </Step>
+
+  <Step title="Drop to upload">
+    The editor shows a visual drop target. Release the mouse to upload.
+  </Step>
+
+  <Step title="Image is inserted">
+    The image is uploaded to `/api/images`, saved to the `images/` directory, and inserted at the cursor:
+
+    ```markdown
+    ![uploaded-image](images/screenshot-20260228-143052-123456.png)
+    ```
+  </Step>
+</Steps>
+
+```javascript
+editor.addEventListener('drop', async (event) => {
+  event.preventDefault();
+  const files = Array.from(event.dataTransfer.files);
+  
+  for (const file of files) {
+    if (file.type.startsWith('image/')) {
+      await uploadImage(file);
+    }
+  }
+});
+```
+
+### Paste from Clipboard
+
+Copy an image and paste it directly into the editor:
+
+<Steps>
+  <Step title="Copy image">
+    Copy an image from any source:
+    - Screenshot tools (Cmd+Shift+4 on Mac, Win+Shift+S on Windows)
+    - Browser right-click → Copy Image
+    - Image editing apps
+  </Step>
+
+  <Step title="Paste into editor">
+    Click in the editor and press `Cmd/Ctrl + V`
+  </Step>
+
+  <Step title="Image is inserted">
+    The image data is uploaded and a markdown reference is inserted at the cursor position.
+  </Step>
+</Steps>
+
+```javascript
+editor.addEventListener('paste', async (event) => {
+  const items = Array.from(event.clipboardData.items);
+  
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault();
+      const file = item.getAsFile();
+      if (file) {
+        await uploadImage(file);
+      }
+    }
+  }
+});
+```
+
+<Tip>
+  Pasting images works with screenshots, copied browser images, and files from your clipboard. The image format is auto-detected.
+</Tip>
+
+### Insert Menu Button
+
+Use the toolbar to insert images by URL:
+
+1. Click the **Insert** menu in the toolbar
+2. Select **Image**
+3. Enter the image URL when prompted
+4. Optionally enter alt text
+5. The markdown reference is inserted:
+
+```markdown
+![Alt text](https://example.com/image.png)
+```
+
+This method is useful for embedding external images without uploading.
+
+## Upload API
+
+### Endpoint
+
+```http
+POST /api/images
+Content-Type: multipart/form-data
+
+file: [binary image data]
+```
+
+### Response
+
+```json
+{
+  "path": "images/diagram-20260228-143052-123456.png",
+  "filename": "diagram-20260228-143052-123456.png"
+}
+```
+
+The `path` field is the relative path used in markdown. The `filename` is the sanitized name with timestamp.
+
+### Implementation
+
+The upload handler validates and processes images:
+
+```python
+@app.post("/api/images")
+async def upload_image(file: UploadFile) -> dict[str, str]:
+    # Validate extension
+    original_name = file.filename or "image.png"
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported image format: {suffix or '(missing extension)'}",
+        )
+
+    # Read and validate size
+    image_data = await file.read()
+    if not image_data:
+        raise HTTPException(status_code=400, detail="Empty file uploaded.")
+    if len(image_data) > MAX_IMAGE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image too large. Maximum size is {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)} MB.",
+        )
+
+    # Generate safe filename with timestamp
+    safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(original_name).stem).strip("-")
+    if not safe_stem:
+        safe_stem = "image"
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    filename = f"{safe_stem}-{timestamp}{suffix}"
+
+    # Save to images directory
+    images_dir = _get_images_dir(app)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    destination = images_dir / filename
+    destination.write_bytes(image_data)
+
+    return {"path": f"images/{filename}", "filename": filename}
+```
+
+## Storage Location
+
+### Single File Mode
+
+Images are stored in an `images/` directory adjacent to your markdown file:
+
+```
+my-notes/
+├── notes.md
+└── images/
+    ├── diagram-20260228-143052-123456.png
+    └── screenshot-20260228-143108-789012.jpg
+```
+
+```python
+def _get_images_dir(app: FastAPI) -> Path:
+    if app.state.mode == "file":
+        file_handler = _require_file_handler(app)
+        return file_handler.filepath.parent / "images"
+```
+
+### Directory Mode
+
+Images are stored in an `images/` directory at the workspace root:
+
+```
+my-docs/
+├── images/
+│   ├── architecture-20260228-143052-123456.png
+│   └── logo-20260228-143108-789012.svg
+├── guides/
+│   ├── getting-started.md
+│   └── advanced.md
+└── README.md
+```
+
+```python
+def _get_images_dir(app: FastAPI) -> Path:
+    if app.state.mode == "file":
+        # ...
+    directory_handler = _require_directory_handler(app)
+    return directory_handler.directory / "images"
+```
+
+All markdown files reference images using the same relative path:
+
+```markdown
+<!-- Works from guides/getting-started.md and README.md -->
+![Architecture](images/architecture-20260228-143052-123456.png)
+```
+
+<Info>
+  The `images/` directory is created automatically on first upload. You don't need to create it manually.
+</Info>
+
+## Filename Sanitization
+
+Filenames are sanitized to ensure filesystem compatibility:
+
+```python
+safe_stem = re.sub(r"[^a-zA-Z0-9_-]", "-", Path(original_name).stem).strip("-")
+if not safe_stem:
+    safe_stem = "image"
+
+timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+filename = f"{safe_stem}-{timestamp}{suffix}"
+```
+
+**Examples:**
+
+| Original Filename | Sanitized Filename |
+|-------------------|--------------------|
+| `Screenshot 2026.png` | `Screenshot-2026-20260228-143052-123456.png` |
+| `my diagram!.jpg` | `my-diagram-20260228-143053-789012.jpg` |
+| `@#$%.png` | `image-20260228-143054-456789.png` |
+| `logo.svg` | `logo-20260228-143055-123456.svg` |
+
+Timestamps prevent filename collisions when uploading multiple images with the same name.
+
+## Supported Formats
+
+Markdown-OS accepts these image formats:
+
+```python
+ALLOWED_IMAGE_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".bmp",
+    ".ico",
+}
+```
+
+Attempting to upload other file types (e.g., `.pdf`, `.txt`, `.mp4`) results in a 400 error:
+
+```json
+{
+  "detail": "Unsupported image format: .pdf"
+}
+```
+
+<Warning>
+  SVG files are allowed but rendered as-is without sanitization. Only upload SVGs from trusted sources to avoid XSS vulnerabilities.
+</Warning>
+
+## Size Limits
+
+Maximum upload size is 10 MB:
+
+```python
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+```
+
+Larger files are rejected:
+
+```json
+{
+  "detail": "Image too large. Maximum size is 10 MB."
+}
+```
+
+For very large images, consider:
+- Compressing before upload using tools like ImageOptim, TinyPNG, or `imagemagick`
+- Using external image hosting (Imgur, Cloudinary) and linking by URL
+- Storing images in Git LFS for version control
+
+## Serving Images
+
+Uploaded images are served via the `/images/{filename}` endpoint:
+
+```python
+@app.get("/images/{filename:path}")
+async def serve_image(filename: str) -> FileResponse:
+    # Prevent directory traversal
+    if ".." in filename or filename.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid image path.")
+
+    images_dir = _get_images_dir(app)
+    image_path = (images_dir / filename).resolve()
+    images_root = images_dir.resolve()
+    
+    # Ensure path stays within images directory
+    if not image_path.is_relative_to(images_root):
+        raise HTTPException(status_code=400, detail="Invalid image path.")
+    
+    if not image_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    return FileResponse(image_path)
+```
+
+**Security:**
+- Path traversal attempts (`../`, absolute paths) are blocked
+- Only files within the `images/` directory are accessible
+- Non-existent files return 404
+
+## Markdown Embedding
+
+Images are embedded using standard markdown syntax:
+
+```markdown
+![Alt text](images/diagram.png)
+```
+
+### With Size Attributes (HTML)
+
+For precise sizing, use HTML `<img>` tags:
+
+```html
+<img src="images/logo.png" alt="Logo" width="200" />
+```
+
+### Responsive Images
+
+Images scale responsively in the editor using CSS:
+
+```css
+.wysiwyg-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+```
+
+### Alignment
+
+Use HTML and inline styles for alignment:
+
+```html
+<!-- Center -->
+<p align="center">
+  <img src="images/banner.png" alt="Banner" />
+</p>
+
+<!-- Float right -->
+<img src="images/profile.jpg" alt="Profile" style="float: right; margin-left: 1em;" />
+```
+
+## Image Management
+
+### Listing Images
+
+Images are just files in the `images/` directory. List them with:
+
+```bash
+ls images/
+```
+
+### Deleting Images
+
+Delete unused images manually:
+
+```bash
+rm images/old-screenshot-20260101-120000-000000.png
+```
+
+<Note>
+  Markdown-OS doesn't track image usage. Deleting an image that's still referenced in markdown will result in a broken image link.
+</Note>
+
+### Finding Unused Images
+
+Find images not referenced in any markdown file:
+
+```bash
+# List all images
+find images -type f > all-images.txt
+
+# Find images referenced in markdown
+grep -roh 'images/[^)]*' *.md | sort -u > used-images.txt
+
+# Compare to find unused
+comm -23 all-images.txt used-images.txt
+```
+
+### Organizing Images
+
+While Markdown-OS stores all images flat in `images/`, you can organize them with subdirectories:
+
+```
+images/
+├── diagrams/
+│   └── architecture.png
+├── screenshots/
+│   └── ui.png
+└── logos/
+    └── brand.svg
+```
+
+Reference with subdirectory paths:
+
+```markdown
+![Architecture](images/diagrams/architecture.png)
+```
+
+However, uploads always go to the root `images/` directory. Manual organization is required.
+
+## External Images
+
+You can also reference external images by URL:
+
+```markdown
+![GitHub Logo](https://github.com/github.png)
+```
+
+External images:
+- Don't count toward the 10 MB upload limit
+- Load from the external server (requires internet)
+- May break if the external URL changes
+- Work without uploading to your workspace
+
+<Tip>
+  For documentation that might be viewed offline, upload images rather than linking externally.
+</Tip>
+
+## Common Issues
+
+### Images Not Displaying
+
+**Cause:** Incorrect relative path  
+**Solution:** Images must be in the `images/` directory. Check the path:
+
+```markdown
+<!-- ✓ Correct -->
+![Diagram](images/diagram.png)
+
+<!-- ✗ Wrong -->
+![Diagram](diagram.png)
+![Diagram](./images/diagram.png)
+![Diagram](/images/diagram.png)
+```
+
+### Upload Fails Silently
+
+**Cause:** Network error or server timeout  
+**Solution:** Check browser console for errors:
+
+```javascript
+// Console will show:
+// POST http://127.0.0.1:8000/api/images 413 (Request Entity Too Large)
+```
+
+Common HTTP status codes:
+- `400` - Invalid format or empty file
+- `413` - File too large (>10 MB)
+- `500` - Server error (check server logs)
+
+### Drag-and-Drop Not Working
+
+**Cause:** Browser security restrictions or JavaScript disabled  
+**Solution:**
+- Ensure JavaScript is enabled
+- Try paste instead of drag-and-drop
+- Check for browser extensions blocking events
+
+### Images Render Broken After Move
+
+**Cause:** Image file was moved or deleted  
+**Solution:** Re-upload the image or update the markdown reference to the new path.
+
+## Performance Tips
+
+### Optimize Before Upload
+
+Reduce file sizes before uploading:
+
+```bash
+# PNG optimization
+pngquant image.png --output image-optimized.png
+
+# JPEG compression
+jpeg-recompress image.jpg image-optimized.jpg
+
+# SVG minification
+svgo image.svg -o image-optimized.svg
+```
+
+### Lazy Loading
+
+The editor uses native lazy loading for images:
+
+```html
+<img src="images/large-diagram.png" loading="lazy" alt="Diagram" />
+```
+
+Images below the fold load only when scrolled into view.
+
+### Responsive Images
+
+For high-DPI displays, use `srcset`:
+
+```html
+<img
+  src="images/logo.png"
+  srcset="images/logo.png 1x, images/logo@2x.png 2x"
+  alt="Logo"
+/>
+```
+
+Upload both `logo.png` (standard) and `logo@2x.png` (retina) versions.
